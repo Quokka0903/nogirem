@@ -34,17 +34,18 @@ test("게임 포커스 중에만 접근성 커서 크기를 바꾸고 원래 값
   assert.match(source, /class CursorScaleGuard/)
   assert.match(
     source,
-    /scalePercent_ != 100 && foregroundGame_\.matches\(\)/,
+    /gameForeground = foregroundGame_\.matches\(\)[\s\S]*scalePercent_ != 100 && gameForeground/,
   )
   assert.match(source, /RegGetValueW\([\s\S]*L"CursorBaseSize"/)
   assert.match(source, /setCursorBaseSizeAction = 0x2029/)
   assert.match(
     source,
-    /SystemParametersInfoW\([\s\S]*setCursorBaseSizeAction[\s\S]*SPIF_UPDATEINIFILE \| SPIF_SENDCHANGE/,
+    /SystemParametersInfoW\([\s\S]*setCursorBaseSizeAction[\s\S]*SPIF_UPDATEINIFILE/,
   )
+  assert.doesNotMatch(source, /SPIF_SENDCHANGE/)
   assert.match(source, /readCursorBaseSize\(\) != value/)
   assert.match(source, /MulDiv\(static_cast<int>\(originalBaseSize_\), scalePercent_, 100\)/)
-  assert.match(source, /SystemParametersInfoW\([\s\S]*SPI_SETCURSORS/)
+  assert.doesNotMatch(source, /SPI_SETCURSORS/)
   assert.match(source, /originalCursorBaseSize/)
   assert.match(
     source,
@@ -52,9 +53,17 @@ test("게임 포커스 중에만 접근성 커서 크기를 바꾸고 원래 값
   )
   assert.match(
     source,
-    /foreground == lastWindow_ && pid == lastPid_[\s\S]*return lastMatch_/,
+    /if \(options\.restoreOnly\) \{\s*ReleaseMutex\(mutex\)/,
+  )
+  assert.match(
+    source,
+    /changed_ = foreground != lastWindow_ \|\| pid != lastPid_[\s\S]*if \(!changed_\) return lastMatch_/,
   )
   assert.match(source, /CreateToolhelp32Snapshot\(TH32CS_SNAPPROCESS, 0\)/)
+  assert.match(source, /PeekMessageW\(&message,[\s\S]*PM_REMOVE/)
+  assert.doesNotMatch(source, /SetTimer\(/)
+  assert.match(source, /foregroundPid/)
+  assert.match(source, /foregroundProcessName/)
   assert.match(
     source,
     /foregroundPath\.empty\(\)[\s\S]*processImageName\(pid\)[\s\S]*gameFileName_/,

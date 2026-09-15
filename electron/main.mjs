@@ -6247,6 +6247,7 @@ function openDxvkManager() {
     width: 560,
     height: 430,
     show: false,
+    opacity: 0,
     resizable: false,
     maximizable: false,
     parent: primaryWindow ?? undefined,
@@ -6300,10 +6301,6 @@ function openDxvkManager() {
   window.once("ready-to-show", () => {
     if (window.isDestroyed()) return
     writeStartupLog(`Vulkan 관리 창 표시 준비 ${Date.now() - openedAt}ms`)
-    window.center()
-    window.setOpacity(1)
-    window.show()
-    window.focus()
   })
   window.on("close", event => {
     if (closing) return
@@ -6325,7 +6322,20 @@ function openDxvkManager() {
       : builtManagerPath,
   )
   void loading
-    .then(() => writeStartupLog(`Vulkan 관리 창 문서 로드 ${Date.now() - openedAt}ms`))
+    .then(async () => {
+      writeStartupLog(`Vulkan 관리 창 문서 로드 ${Date.now() - openedAt}ms`)
+      await window.webContents.executeJavaScript(`
+        new Promise(resolve => {
+          requestAnimationFrame(() => requestAnimationFrame(resolve))
+        })
+      `)
+      if (window.isDestroyed()) return
+      writeStartupLog(`Vulkan 관리 창 렌더링 완료 ${Date.now() - openedAt}ms`)
+      window.center()
+      window.show()
+      window.focus()
+      animateOpacity(0, 1, 300)
+    })
     .catch(error => showWindowLoadError(window, error))
     .catch(error => console.error("DXVK 관리 화면 로드 실패", error))
 }

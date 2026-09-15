@@ -268,10 +268,10 @@ test("관리 창의 확인·설치 완료 상태를 메인 화면에 즉시 전�
     mainSource.indexOf("function openDxvkManager()"),
     mainSource.indexOf("\nfunction openBlackboxManager()", mainSource.indexOf("function openDxvkManager()")),
   )
-  assert.doesNotMatch(dxvkManagerWindowSource, /opacity: 0/)
+  assert.match(dxvkManagerWindowSource, /show: false,\s*opacity: 0/)
   assert.match(
     dxvkManagerWindowSource,
-    /ready-to-show[\s\S]*window\.setOpacity\(1\)[\s\S]*window\.show\(\)/,
+    /window\.loadFile\([\s\S]*executeJavaScript\(`[\s\S]*requestAnimationFrame\(\(\) => requestAnimationFrame\(resolve\)\)[\s\S]*window\.show\(\)[\s\S]*animateOpacity\(0, 1, 300\)/,
   )
   assert.match(dxvkManagerWindowSource, /paintWhenInitiallyHidden: true/)
   assert.match(

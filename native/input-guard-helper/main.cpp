@@ -157,17 +157,6 @@ DWORD readCursorBaseSize() {
   return value;
 }
 
-void restoreSystemCursors() {
-  if (!SystemParametersInfoW(
-    SPI_SETCURSORS,
-    0,
-    nullptr,
-    SPIF_UPDATEINIFILE | SPIF_SENDCHANGE
-  )) {
-    throw std::runtime_error("Windows 마우스 커서를 복원하지 못했습니다");
-  }
-}
-
 void setCursorBaseSize(DWORD value) {
   if (value == 0 || value > 512) {
     throw std::runtime_error("Windows 마우스 커서 크기 값이 올바르지 않습니다");
@@ -177,7 +166,7 @@ void setCursorBaseSize(DWORD value) {
     setCursorBaseSizeAction,
     0,
     reinterpret_cast<PVOID>(static_cast<ULONG_PTR>(value)),
-    SPIF_UPDATEINIFILE | SPIF_SENDCHANGE
+    SPIF_UPDATEINIFILE
   )) {
     throw std::runtime_error("Windows 마우스 커서 크기를 적용하지 못했습니다");
   }
@@ -196,19 +185,34 @@ public:
     const HWND foreground = GetForegroundWindow();
     DWORD pid = 0;
     if (foreground) GetWindowThreadProcessId(foreground, &pid);
-    if (foreground == lastWindow_ && pid == lastPid_) return lastMatch_;
+    changed_ = foreground != lastWindow_ || pid != lastPid_;
+    if (!changed_) return lastMatch_;
     lastWindow_ = foreground;
     lastPid_ = pid;
     const auto foregroundPath = processImagePath(pid);
     if (foregroundPath.empty()) {
-      lastMatch_ = lowerPath(processImageName(pid)) == gameFileName_;
+      lastProcessName_ = processImageName(pid);
+      lastMatch_ = lowerPath(lastProcessName_) == gameFileName_;
       return lastMatch_;
     }
     const fs::path foregroundFile(foregroundPath);
+    lastProcessName_ = foregroundFile.filename().wstring();
     lastMatch_ =
       lowerPath(foregroundPath) == gamePath_
-      || lowerPath(foregroundFile.filename().wstring()) == gameFileName_;
+      || lowerPath(lastProcessName_) == gameFileName_;
     return lastMatch_;
+  }
+
+  bool changed() const {
+    return changed_;
+  }
+
+  DWORD pid() const {
+    return lastPid_;
+  }
+
+  const std::wstring& processName() const {
+    return lastProcessName_;
   }
 
 private:
@@ -216,7 +220,9 @@ private:
   std::wstring gameFileName_;
   HWND lastWindow_ = nullptr;
   DWORD lastPid_ = 0;
+  std::wstring lastProcessName_;
   bool lastMatch_ = false;
+  bool changed_ = false;
 };
 
 class CursorScaleGuard {
@@ -236,9 +242,10 @@ public:
   }
 
   bool update() {
-    const bool shouldBeActive =
-      scalePercent_ != 100 && foregroundGame_.matches();
-    if (shouldBeActive == active_) return false;
+    const bool gameForeground = foregroundGame_.matches();
+    const bool foregroundChanged = foregroundGame_.changed();
+    const bool shouldBeActive = scalePercent_ != 100 && gameForeground;
+    if (shouldBeActive == active_) return foregroundChanged;
     if (shouldBeActive) apply();
     else restore();
     return true;
@@ -256,6 +263,14 @@ public:
 
   DWORD originalBaseSize() const {
     return originalBaseSize_;
+  }
+
+  DWORD foregroundPid() const {
+    return foregroundGame_.pid();
+  }
+
+  const std::wstring& foregroundProcessName() const {
+    return foregroundGame_.processName();
   }
 
 private:
@@ -295,6 +310,18 @@ bool stopRequested(const fs::path& controlPath) {
     || value.find("\"command\": \"stop\"") != std::string::npos;
 }
 
+std::string jsonAscii(const std::wstring& value) {
+  std::string result;
+  result.reserve(value.size());
+  for (const wchar_t character : value) {
+    if (character == L'\\' || character == L'"') result.push_back('\\');
+    result.push_back(character >= 32 && character <= 126
+      ? static_cast<char>(character)
+      : '?');
+  }
+  return result;
+}
+
 void writeStatus(
   const fs::path& statusPath,
   bool running,
@@ -302,6 +329,8 @@ void writeStatus(
   bool cursorActive = false,
   int cursorScalePercent = 100,
   DWORD originalCursorBaseSize = 0,
+  DWORD foregroundPid = 0,
+  const std::wstring& foregroundProcessName = {},
   const std::string& error = {}
 ) {
   fs::create_directories(statusPath.parent_path());
@@ -314,6 +343,10 @@ void writeStatus(
     << ",\"cursorActive\":" << (cursorActive ? "true" : "false")
     << ",\"cursorScalePercent\":" << cursorScalePercent
     << ",\"originalCursorBaseSize\":" << originalCursorBaseSize
+    << ",\"foregroundPid\":" << foregroundPid
+    << ",\"foregroundProcessName\":\""
+    << jsonAscii(foregroundProcessName)
+    << "\""
     << ",\"error\":";
   if (error.empty()) output << "null";
   else output << "\"입력 기능 helper 오류\"";
@@ -425,7 +458,6 @@ int wmain(int count, wchar_t** values) {
       setCursorBaseSize(options.restoreCursorBaseSize);
     }
     if (options.restoreOnly) {
-      if (options.restoreCursorBaseSize == 0) restoreSystemCursors();
       ReleaseMutex(mutex);
       CloseHandle(mutex);
       return 0;
@@ -442,25 +474,26 @@ int wmain(int count, wchar_t** values) {
       options.gamePath,
       options.cursorScalePercent
     );
+    cursorScaleGuard.update();
     writeStatus(
       options.statusPath,
       true,
       GetCurrentProcessId(),
-      false,
+      cursorScaleGuard.active(),
       options.cursorScalePercent,
-      cursorScaleGuard.originalBaseSize()
+      cursorScaleGuard.originalBaseSize(),
+      cursorScaleGuard.foregroundPid(),
+      cursorScaleGuard.foregroundProcessName()
     );
 
-    const UINT_PTR healthTimer = SetTimer(nullptr, 0, 50, nullptr);
-    if (!healthTimer) {
-      throw std::runtime_error("입력 감시 상태 타이머를 시작하지 못했습니다");
-    }
     MSG message{};
     while (processRunning(parent) && !stopRequested(options.controlPath)) {
-      const BOOL messageResult = GetMessageW(&message, nullptr, 0, 0);
-      if (messageResult <= 0) break;
-      TranslateMessage(&message);
-      DispatchMessageW(&message);
+      while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+        if (message.message == WM_QUIT) break;
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
+      }
+      if (message.message == WM_QUIT) break;
       if (cursorScaleGuard.update()) {
         writeStatus(
           options.statusPath,
@@ -468,11 +501,13 @@ int wmain(int count, wchar_t** values) {
           GetCurrentProcessId(),
           cursorScaleGuard.active(),
           options.cursorScalePercent,
-          cursorScaleGuard.originalBaseSize()
+          cursorScaleGuard.originalBaseSize(),
+          cursorScaleGuard.foregroundPid(),
+          cursorScaleGuard.foregroundProcessName()
         );
       }
+      Sleep(50);
     }
-    KillTimer(nullptr, healthTimer);
     cursorScaleGuard.restore();
     writeStatus(
       options.statusPath,
@@ -495,6 +530,8 @@ int wmain(int count, wchar_t** values) {
         false,
         options.cursorScalePercent,
         options.restoreCursorBaseSize,
+        0,
+        {},
         error.what()
       );
     }
