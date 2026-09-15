@@ -2801,7 +2801,7 @@
                       {/each}
                     </select>
                     <label class="developer-tool-subsetting">
-                      <span>게임 중 휠로 25%씩 조절 · 조합 입력 차단</span>
+                      <span>게임 중 휠로 25%씩 조절</span>
                       <select
                         class="developer-tool-select"
                         value={mouseCursorWheelModifier}

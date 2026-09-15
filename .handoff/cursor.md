@@ -1,12 +1,12 @@
 # Cursor AI Handoff
 
-Last Updated: 2026-09-16 04:16
+Last Updated: 2026-09-16 04:28
 
 ## Current Objective
 0.3.14 블랙박스 재생 개선과 마비노기 포커스 전용 마우스 커서 크기 기능을 검증한다.
 
 ## Current Status
-- `WH_MOUSE_LL`의 `return 1`은 일반 `WM_MOUSEWHEEL`만 소비하고 마비노기의 Raw Input·DirectInput 조합은 막지 못해 실제 Ctrl·Alt+휠 명령이 전달됐다. 사용자가 선택한 `휠 조작 순간에만 보조 키 해제·복원` 방식으로 수정했다. 전용 hook 스레드가 선택한 보조 키의 물리 down/up을 추적하고 게임 포커스 휠에서 key-up을 주입한 뒤 30ms 동안 연속 휠을 커서 조절에만 사용하며, 키를 계속 누르고 있으면 key-down을 복원한다. 주입 이벤트는 물리 상태 추적에서 제외하고 실제 key-up이 먼저 오면 복원을 취소한다. 전체 169개 테스트와 앱 빌드가 통과했으며 최종 helper는 330,240바이트·SHA-256 `CFAB7D00…C1C7CE`다.
+- 마비노기의 Raw Input·DirectInput 전달을 막으려고 추가한 보조 키 release·press 주입은 효과가 없고 키 상태를 불안정하게 만들 수 있어 사용자의 정정에 따라 관련 키보드 hook과 입력 주입만 제거했다. Ctrl·Alt+휠 커서 크기 조절과 지연 없는 전용 마우스 hook은 유지하며 같은 휠 입력이 게임에도 전달되는 제한이 있다. 최종 helper는 329,216바이트·SHA-256 `229E4A75…D9E37C`다.
 - 커서 휠용 `WH_MOUSE_LL` hook을 helper의 50ms 상태 폴링 스레드에 설치한 탓에 모든 마우스 이벤트가 메시지 처리까지 기다려 옵션을 켜자마자 심한 입력 지연이 발생했다. hook을 `GetMessage` 전용 스레드로 분리해 즉시 응답하고 callback은 원자 휠 단계만 기록하도록 수정했다. 포그라운드 검증은 main loop가 캐시한 게임 PID와 현재 PID를 비교해 callback에서 프로세스 경로를 조회하지 않는다. 500개 연속 커서 이동 이벤트가 73ms에 처리됐고 전체 169개 테스트와 앱 빌드가 통과했다. UI는 별도 큰 행을 제거하고 `게임 마우스 커서 크기` 행 내부의 작은 하위 선택으로 이동했다. 최종 helper는 329,216바이트·SHA-256 `C247E0AF…3AAC06`이다.
 - Vulkan 사전 로드는 최초 열기만 빨랐고 일반 닫기에서 `window.destroy()`를 호출해 두 번째 열기부터 다시 생성·렌더링하는 회귀가 있었다. 일반 닫기는 페이드아웃 후 `hide()`하고 같은 BrowserWindow·렌더러·조회 상태를 유지한다. 앱 종료 또는 트레이 전환만 실제 close를 허용하며, 다시 열 때 준비된 창을 즉시 300ms 페이드인한다. 보존된 DOM에서 닫기 버튼을 재사용할 수 있도록 일회성 disabled 처리도 제거했다.
 - 게임 커서 크기를 75~800% 사이 25% 단위로 확장했다. 800%는 기본 `CursorBaseSize` 32 기준 Windows 접근성 최대값 256이며 원래 커서가 더 큰 환경도 절대 256에서 제한한다. 고급 기능에 `사용 안 함`·`Ctrl + 휠`·`Alt + 휠` 옵션을 추가했고, 활성화 시에만 `WH_MOUSE_LL` hook을 만든다. 마비노기 포그라운드의 물리 휠만 소비해 25%씩 조절하고 helper status의 변경값을 main 설정에 반영해 영구 저장한다. 최종 helper는 310,784바이트·SHA-256 `ED00439D…27E6DEA5`이며 현재 PC에서 800%·CursorBaseSize 256 적용과 32 복원을 확인했다.
@@ -373,7 +373,7 @@ Last Updated: 2026-09-16 04:16
 - 프로덕션 빌드, Electron 구문 검사, 전체 테스트 20개와 편집기 린트가 통과했다.
 
 ## Architecture / Important Decisions
-- 마비노기의 Raw Input·DirectInput은 저수준 마우스 hook의 소비 여부와 독립적일 수 있다. 선택된 커서 휠 조합은 보조 키를 휠 순간에 30ms 해제하고 물리 키가 계속 눌린 경우에만 복원해 게임이 조합으로 해석하지 못하게 한다.
+- 마비노기의 Raw Input·DirectInput은 저수준 마우스 hook의 소비 여부와 독립적이다. 커서 휠 기능에서 게임 입력 차단을 보장하지 않으며 보조 키를 인위적으로 해제·복원하지 않는다.
 - 저수준 마우스 hook은 50ms polling loop에 설치하면 안 된다. 전용 `GetMessage` 스레드가 모든 입력을 즉시 통과시키고 조건에 맞는 휠 단계만 atomic으로 main loop에 전달한다. Windows 접근성 커서 API 호출은 hook callback에서 실행하지 않는다.
 - Vulkan 관리 창은 사용자 닫기에서 파괴하지 않고 숨겨 재사용한다. 앱 종료와 트레이 진입에서는 기존 내부 창 정리 흐름을 위해 실제 close를 허용한다.
 - 커서 휠 조절은 입력 지연을 피하기 위해 옵션이 켜진 경우에만 별도 `WH_MOUSE_LL` hook을 설치한다. 주입된 휠은 무시하고 마비노기 포그라운드와 선택 modifier가 모두 맞을 때만 입력을 소비한다.
@@ -548,7 +548,7 @@ Last Updated: 2026-09-16 04:16
 - REPORT 응답에는 이메일·사용자명·시스템 경로 등 개인정보와 민감한 진단 원문을 기록하지 않는다.
 
 ## Pending Tasks
-1. 마비노기에서 Ctrl·휠과 Alt·휠의 게임 명령 차단, 입력 지연 제거, 25% 조절 및 보조 키 정상 복원을 수동 확인한다.
+1. 마비노기에서 Ctrl·휠과 Alt·휠의 입력 지연 제거와 25% 커서 조절을 수동 확인한다.
 1. 새 helper를 로드한 상태에서 마비노기 Client.exe를 포커스해 input-guard status의 `cursorActive`가 true로 전환되고 `CursorBaseSize`가 선택 비율로 바뀌는지 확인한다.
 1. 수정된 helper로 마비노기에서 75%·125%·150%·200%를 각각 선택하고, 게임 커서 반영과 Alt+Tab 직후 원래 Windows 커서 크기 복원을 수동 검증한다.
 1. 문제 청크가 있는 환경에서 0.3.14 개발본 또는 다음 설치본으로 같은 시간대를 열어 검정 화면이 복구되는지 확인한다. 재현되면 진단 ZIP의 `blackbox-events.log`에서 `timeline-gap`, `segment-error`, `load-timeout`, `seek-timeout` 중 어느 단계인지 확인하고 실제 청크도 함께 분석한다.
@@ -765,7 +765,7 @@ Last Updated: 2026-09-16 04:16
 - `vite.config.mjs`: Svelte 렌더러 빌드 설정
 
 ## Recent Changes
-- Raw Input·DirectInput으로 새던 커서 조절 조합을 막기 위해 휠 순간의 선택 보조 키를 일시 해제하고 물리 키 상태에 맞춰 복원한다.
+- 효과가 없던 Raw Input 차단용 보조 키 해제·복원과 키보드 hook을 제거하고 Ctrl·Alt+휠 커서 조절은 유지했다.
 - 커서 휠 저수준 hook을 전용 메시지 스레드로 분리해 전체 마우스 입력 지연을 제거하고, 휠 선택 UI를 커서 크기 설정의 하위 항목으로 축소했다.
 - Vulkan 관리 창 일반 닫기를 destroy에서 hide로 바꿔 두 번째 이후 열기도 사전 로드 창을 재사용한다. 커서 범위를 최대 800%로 확장하고 게임 중 Ctrl·Alt 휠 조절과 설정 영속화를 추가했다.
 - Vulkan 관리 창을 앱 시작 후 숨김 상태로 사전 로드하고 최신 릴리스 조회를 미리 시작하도록 변경했다. 클릭 시 새 창 생성·렌더 대기 없이 준비된 골격을 즉시 페이드인한다.
@@ -1604,4 +1604,4 @@ Last Updated: 2026-09-16 04:16
 - 정확 재인코딩의 첫 PCM sample 내부에서 요청 시점 전 frame을 제거해 AAC frame 경계의 최대 약 21ms 선행도 없앴다. 실제 비정렬 시작점 추출은 통과했지만 실행 중 recorder 잠금 때문에 배포용 local bin 갱신은 남아 있다.
 
 ## Next Recommended Step
-개발 앱을 완전히 종료하고 `npm run app:dev`로 재실행한다. 마비노기에서 선택한 Ctrl·Alt+휠이 기존 게임 명령을 실행하지 않고 커서만 조절하는지, 휠을 멈춘 뒤 보조 키가 정상 복원되는지 확인한다.
+개발 앱을 완전히 종료하고 `npm run app:dev`로 재실행한다. 마비노기에서 Ctrl·Alt+휠 커서 조절 시 입력 지연이나 보조 키 상태 이상이 없는지 확인한다.
