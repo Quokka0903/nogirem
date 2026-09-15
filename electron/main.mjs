@@ -342,6 +342,41 @@ function logBlackboxEvent(event, details = {}) {
   return appendBlackboxLog(getBlackboxPaths().eventsPath, event, details)
 }
 
+function logBlackboxEditorPlayback(value) {
+  const allowedStages = new Set([
+    "timeline-gap",
+    "segment-load",
+    "segment-metadata",
+    "segment-data",
+    "segment-seeked",
+    "segment-error",
+    "load-timeout",
+    "seek-timeout",
+  ])
+  const stage = allowedStages.has(value?.stage) ? value.stage : "invalid"
+  const finiteNumber = key => {
+    if (value?.[key] === null || value?.[key] === undefined) return null
+    const number = Number(value?.[key])
+    return Number.isFinite(number) ? number : null
+  }
+  const mediaId = typeof value?.mediaId === "string"
+    ? basename(value.mediaId).slice(0, 160)
+    : ""
+  return logBlackboxEvent("editor-playback", {
+    stage,
+    mediaId,
+    timelineTime: finiteNumber("timelineTime"),
+    currentTime: finiteNumber("currentTime"),
+    duration: finiteNumber("duration"),
+    readyState: finiteNumber("readyState"),
+    networkState: finiteNumber("networkState"),
+    errorCode: finiteNumber("errorCode"),
+    retryCount: finiteNumber("retryCount"),
+    previousEnd: finiteNumber("previousEnd"),
+    nextStart: finiteNumber("nextStart"),
+  }).then(() => true)
+}
+
 function observeBlackboxRuntimeStatus(status) {
   if (!status) return
   if (
@@ -5647,6 +5682,12 @@ function registerIpc() {
     }
     return prepareBlackboxEditorSession(blackboxEditorSession)
   })
+  ipcMain.handle("blackbox-editor:report-playback", (event, value) => {
+    if (BrowserWindow.fromWebContents(event.sender) !== blackboxEditorWindow) {
+      throw new Error("허용되지 않은 블랙박스 재생 진단 요청입니다")
+    }
+    return logBlackboxEditorPlayback(value)
+  })
   ipcMain.handle("blackbox-editor:set-enabled", (event, enabled) => {
     if (BrowserWindow.fromWebContents(event.sender) !== blackboxEditorWindow) {
       throw new Error("허용되지 않은 블랙박스 상태 변경 요청입니다")
@@ -5896,6 +5937,12 @@ function registerIpc() {
       throw new Error("허용되지 않은 블랙박스 편집 세션 요청입니다")
     }
     return prepareBlackboxEditorSession(createBlackboxEditorSession())
+  })
+  ipcMain.handle("blackbox-manager:report-playback", (event, value) => {
+    if (BrowserWindow.fromWebContents(event.sender) !== blackboxManagerWindow) {
+      throw new Error("허용되지 않은 블랙박스 재생 진단 요청입니다")
+    }
+    return logBlackboxEditorPlayback(value)
   })
   ipcMain.handle("blackbox-manager:set-enabled", (event, enabled) => {
     if (BrowserWindow.fromWebContents(event.sender) !== blackboxManagerWindow) {

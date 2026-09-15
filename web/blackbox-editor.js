@@ -73,6 +73,7 @@ const editorBridge = embedded
       extract: range => requestParent("extract", range),
       suggestClipName: () => requestParent("suggestClipName"),
       showOutput: outputPath => requestParent("showOutput", outputPath),
+      reportPlayback: value => requestParent("reportPlayback", value),
     }
   : window.blackboxEditor
 
@@ -100,11 +101,54 @@ let lastOutputPath = ""
 let extracting = false
 let currentVideoUrl = ""
 let videoLoadId = 0
+let videoLoadWatchdog = 0
+let videoSeekWatchdog = 0
+let currentVideoRetryCount = 0
+let lastGapDiagnosticKey = ""
+let seekDiagnosticPending = false
 let statusRetrying = false
 
 function messageOf(error) {
   return error?.message?.replace(/^Error invoking remote method '[^']+': Error: /, "")
     ?? String(error)
+}
+
+function mediaIdentifier(url = currentVideoUrl) {
+  try {
+    return new URL(url).searchParams.get("v") ?? ""
+  } catch {
+    return ""
+  }
+}
+
+function reportPlayback(stage, details = {}) {
+  void editorBridge.reportPlayback?.({
+    stage,
+    mediaId: mediaIdentifier(),
+    timelineTime: Number(timelineCursor.toFixed(3)),
+    currentTime: Number((Number(video.currentTime) || 0).toFixed(3)),
+    duration: Number((Number(video.duration) || 0).toFixed(3)),
+    readyState: video.readyState,
+    networkState: video.networkState,
+    errorCode: video.error?.code ?? null,
+    ...details,
+  }).catch(() => {})
+}
+
+function clearVideoWatchdogs() {
+  clearTimeout(videoLoadWatchdog)
+  clearTimeout(videoSeekWatchdog)
+  videoLoadWatchdog = 0
+  videoSeekWatchdog = 0
+}
+
+function recoverCurrentVideo(stage) {
+  reportPlayback(stage, { retryCount: currentVideoRetryCount })
+  if (currentVideoRetryCount < 1 && currentVideoUrl) {
+    switchSegmentVideo(currentVideoUrl, currentVideoRetryCount + 1)
+    return
+  }
+  setNotice("녹화 청크 화면을 불러오지 못했습니다. 진단 로그를 추출해 주세요.", true)
 }
 
 function formatTime(seconds) {
@@ -215,10 +259,18 @@ function renderEditorError(error, className = "editor failed") {
 
 function segmentAtTimelineTime(time) {
   if (!trackSegments.length) return null
+  const startingSegment = trackSegments.find(segment => (
+    Math.abs(time - segment.timelineStart) < 0.001
+  ))
+  if (startingSegment) return startingSegment
   return trackSegments.find(segment => (
     time >= segment.timelineStart
-    && time <= segment.timelineStart + segment.duration
-  )) ?? null
+    && time < segment.timelineStart + segment.duration
+  )) ?? (
+    Math.abs(time - timelineDuration) < 0.001
+      ? trackSegments.at(-1)
+      : null
+  )
 }
 
 function clampSelection() {
@@ -318,16 +370,39 @@ function syncPreviewToTimeline() {
   gapPreview.hidden = Boolean(segment)
   if (!segment) {
     if (!video.paused) video.pause()
+    const previous = trackSegments
+      .filter(value => value.timelineStart + value.duration < timelineCursor)
+      .at(-1)
+    const next = trackSegments.find(value => value.timelineStart > timelineCursor)
+    const gapKey = `${previous?.timelineStart ?? "start"}:${next?.timelineStart ?? "end"}`
+    if (gapKey !== lastGapDiagnosticKey) {
+      lastGapDiagnosticKey = gapKey
+      reportPlayback("timeline-gap", {
+        previousEnd: previous
+          ? Number((previous.timelineStart + previous.duration).toFixed(3))
+          : null,
+        nextStart: next ? Number(next.timelineStart.toFixed(3)) : null,
+      })
+    }
     return
   }
+  lastGapDiagnosticKey = ""
   const targetMediaTime = segment.mediaStart
     + Math.max(0, Math.min(segment.duration, timelineCursor - segment.timelineStart))
   if (segment.videoUrl && currentVideoUrl !== segment.videoUrl) {
     switchSegmentVideo(segment.videoUrl)
     return
   }
-  if (Math.abs(video.currentTime - targetMediaTime) > 0.12) {
-    video.currentTime = targetMediaTime
+  if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return
+  const seekTime = Number.isFinite(video.duration)
+    ? Math.min(targetMediaTime, Math.max(0, video.duration - 0.001))
+    : targetMediaTime
+  if (Math.abs(video.currentTime - seekTime) > 0.12) {
+    video.currentTime = seekTime
+    clearTimeout(videoSeekWatchdog)
+    videoSeekWatchdog = setTimeout(() => {
+      recoverCurrentVideo("seek-timeout")
+    }, 3000)
   }
   video.playbackRate = selectedPlaybackSpeed()
   if (timelinePlaying && video.paused) {
@@ -339,20 +414,44 @@ function syncPreviewToTimeline() {
   }
 }
 
-function switchSegmentVideo(url) {
+function switchSegmentVideo(url, retryCount = 0) {
   const loadId = ++videoLoadId
   currentVideoUrl = url
+  currentVideoRetryCount = retryCount
+  seekDiagnosticPending = true
+  clearVideoWatchdogs()
   video.pause()
-  video.src = url
+  const sourceUrl = new URL(url)
+  if (retryCount > 0) sourceUrl.searchParams.set("retry", String(Date.now()))
+  video.src = sourceUrl.toString()
+  reportPlayback("segment-load", { retryCount })
   video.addEventListener("loadedmetadata", () => {
     if (loadId !== videoLoadId) return
     fitCurrentMedia()
+    reportPlayback("segment-metadata", { retryCount })
+    syncPreviewToTimeline()
+  }, { once: true })
+  video.addEventListener("loadeddata", () => {
+    if (loadId !== videoLoadId) return
+    clearTimeout(videoLoadWatchdog)
+    videoLoadWatchdog = 0
+    reportPlayback("segment-data", { retryCount })
     syncPreviewToTimeline()
   }, { once: true })
   video.addEventListener("error", () => {
-    if (loadId === videoLoadId) setNotice("녹화 청크를 재생할 수 없습니다", true)
+    if (loadId !== videoLoadId) return
+    clearVideoWatchdogs()
+    reportPlayback("segment-error", { retryCount })
+    if (retryCount < 1) {
+      switchSegmentVideo(url, retryCount + 1)
+    } else {
+      setNotice("녹화 청크를 재생할 수 없습니다. 진단 로그를 추출해 주세요.", true)
+    }
   }, { once: true })
   video.load()
+  videoLoadWatchdog = setTimeout(() => {
+    if (loadId === videoLoadId) recoverCurrentVideo("load-timeout")
+  }, 3000)
 }
 
 function setTimelineCursor(time) {
@@ -420,24 +519,47 @@ function fitCurrentMedia() {
   })
 }
 
-function loadVideo(url, preserveFromEnd = 0) {
+function loadVideo(url, retryCount = 0) {
   return new Promise((resolve, reject) => {
     const loadId = ++videoLoadId
     currentVideoUrl = url
+    currentVideoRetryCount = retryCount
+    seekDiagnosticPending = true
+    const sourceUrl = new URL(url)
+    if (retryCount > 0) sourceUrl.searchParams.set("retry", String(Date.now()))
+    reportPlayback("segment-load", { retryCount })
+    const timeout = setTimeout(() => {
+      retryOrReject(new Error("편집 영상 프레임 로딩 시간이 초과되었습니다"), "load-timeout")
+    }, 3000)
     const cleanup = () => {
-      video.removeEventListener("loadedmetadata", onLoaded)
+      clearTimeout(timeout)
+      video.removeEventListener("loadedmetadata", onMetadata)
+      video.removeEventListener("loadeddata", onData)
       video.removeEventListener("error", onError)
     }
-    const onLoaded = () => {
+    const retryOrReject = (error, stage) => {
+      if (loadId !== videoLoadId) return
       cleanup()
+      reportPlayback(stage, { retryCount })
+      if (retryCount < 1) {
+        loadVideo(url, retryCount + 1).then(resolve, reject)
+      } else {
+        reject(error)
+      }
+    }
+    const onMetadata = () => {
       if (loadId !== videoLoadId) return
       const mediaDuration = Number.isFinite(video.duration) ? video.duration : 0
       if (!mediaDuration) {
-        reject(new Error("재생 가능한 영상 길이를 확인하지 못했습니다"))
+        retryOrReject(
+          new Error("재생 가능한 영상 길이를 확인하지 못했습니다"),
+          "segment-error",
+        )
         return
       }
       duration = timelineDuration || mediaDuration
       fitCurrentMedia()
+      reportPlayback("segment-metadata", { retryCount })
       if (!trackSegments.length) {
         timelineDuration = mediaDuration
         duration = mediaDuration
@@ -448,15 +570,20 @@ function loadVideo(url, preserveFromEnd = 0) {
           videoUrl: url,
         }]
       }
+    }
+    const onData = () => {
+      if (loadId !== videoLoadId) return
+      cleanup()
+      reportPlayback("segment-data", { retryCount })
       resolve()
     }
     const onError = () => {
-      cleanup()
-      reject(new Error("편집 영상을 재생할 수 없습니다"))
+      retryOrReject(new Error("편집 영상을 재생할 수 없습니다"), "segment-error")
     }
-    video.addEventListener("loadedmetadata", onLoaded)
+    video.addEventListener("loadedmetadata", onMetadata)
+    video.addEventListener("loadeddata", onData)
     video.addEventListener("error", onError)
-    video.src = url
+    video.src = sourceUrl.toString()
     video.load()
   })
 }
@@ -810,6 +937,14 @@ async function retryTrackWhenRecordingStarts(value) {
 playToggle.addEventListener("click", togglePlayback)
 enableBlackboxButton.addEventListener("click", enableBlackboxFromEditor)
 video.addEventListener("click", togglePlayback)
+video.addEventListener("seeked", () => {
+  clearTimeout(videoSeekWatchdog)
+  videoSeekWatchdog = 0
+  if (seekDiagnosticPending) {
+    seekDiagnosticPending = false
+    reportPlayback("segment-seeked")
+  }
+})
 gapPreview.addEventListener("click", togglePlayback)
 
 timeline.addEventListener("pointerdown", beginTimelineInteraction)

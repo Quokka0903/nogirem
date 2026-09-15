@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld("blackboxManager", {
     },
     extract: range => ipcRenderer.invoke("blackbox-manager:extract", range),
     suggestClipName: () => ipcRenderer.invoke("blackbox-manager:suggest-clip-name"),
+    reportPlayback: value => ipcRenderer.invoke("blackbox-manager:report-playback", value),
     showOutput: outputPath => {
       return ipcRenderer.invoke("blackbox-manager:show-output", outputPath)
     },

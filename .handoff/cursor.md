@@ -1,11 +1,12 @@
 # Cursor AI Handoff
 
-Last Updated: 2026-09-15 10:38
+Last Updated: 2026-09-16 01:12
 
 ## Current Objective
-0.3.13 배포를 완료하고 실제 사용자 환경의 수정 결과를 확인한다.
+0.3.14 블랙박스 영상 추출의 검정 화면 재생 경로를 개선하고 실제 문제 환경에서 결과를 확인한다.
 
 ## Current Status
+- 0.3.13 진단에서 녹화 프로세스와 청크 생성은 문제 시간대에도 계속됐지만, 기존 로그에는 편집기의 청크 선택·프레임 로딩·seek 상태가 없어 검정 프레임 녹화와 재생 실패를 구분할 수 없었다. 편집기는 이제 `loadeddata` 이후에만 seek하고, 청크 로딩 또는 seek가 3초 안에 끝나지 않으면 캐시를 우회해 한 번 다시 연다. 정확한 청크 경계에서 끝난 이전 청크 대신 시작하는 새 청크를 선택하고 마지막 seek는 영상 길이 안쪽으로 제한했다. 청크 로딩·메타데이터·프레임 데이터·seek 완료·오류·timeout·타임라인 빈 구간을 경로 없이 `blackbox-events.log`에 기록한다. 전체 Node 테스트 167개와 프로덕션 Vite 빌드가 통과했다.
 - 배포 커밋 `d29ec18`과 태그 `v0.3.13`을 원격에 푸시하고 [GitHub Release](https://github.com/rubystarashe/nogirem/releases/tag/v0.3.13)로 정식 공개했다. release는 draft·prerelease가 아니며 GitHub 최신 릴리스도 v0.3.13이다. installer·blockmap·`latest.yml`·터보 키 helper 네 자산의 GitHub 크기와 SHA-256 digest가 로컬 검증값과 모두 일치하고 모두 uploaded 상태다. 배포 시점 원격 `master`, 태그와 Release 커밋은 `d29ec18`로 일치한다.
 - 네 건의 0.3.12 진단 UUID에 `패스트핑·TCP 설정 오류 확인 및 수정` REPORT 답변을 추가했다. 공통 원인, Windows 시작 트레이 설정도 영향받았다는 사실, 0.3.13 업데이트 후 두 설정을 다시 켜는 절차를 안내하며 제보자 이름·이메일은 기록하지 않았다. 앱과 lockfile 버전을 0.3.13으로 올리고 Windows x64 NSIS 설치본을 생성했다. 전체 Node 테스트 167개와 네이티브 helper·프로덕션 앱 빌드가 통과했다. 설치본은 96,996,759바이트·SHA-256 `2C4502C0…B8E74`, blockmap은 102,824바이트·`A191B178…E8C4F`, `latest.yml`은 345바이트·`12F560CC…1BAA`, 터보 키 helper는 291,840바이트·`D9504362…16A857`이다. 설치본·ASAR 앱 버전은 0.3.13이며 ASAR에 네 REPORT 답변과 UTF-8 StreamReader PowerShell 실행기가 포함되고 `-EncodedCommand`는 없다. 패키지 내부 input guard·Radeon·recorder helper와 별도 터보 키 자산은 빌드 산출물 SHA-256과 모두 일치한다. recorder 최종 빌드 해시는 `E1E988BF…EAF77`이다.
 - 서로 다른 네 건의 0.3.12 진단에서 패스트핑 조회가 모두 `Unexpected end of JSON input`으로 실패했고, 화면에는 TCP 자동 조정과 자동 복원도 같은 오류가 표시됐다. 각 환경의 시작 로그에도 `application:get-startup-tray-setting` PowerShell 종료 코드 1이 반복돼 공통 실행기 회귀로 확정했다. 0.3.12의 `powershell.exe -Command -`는 여러 줄 표준입력을 한 줄씩 처리하고 한국어 UTF-8 본문을 시스템 코드 페이지로 읽어 함수·조건문 스크립트가 JSON을 출력하지 못했다. 명령줄에는 고정된 짧은 UTF-8 bootstrap만 두고, 원시 표준입력을 UTF-8 StreamReader로 끝까지 읽은 다음 전체 본문을 하나의 ScriptBlock으로 파싱해 실행하도록 변경했다. 동적 스크립트는 여전히 명령줄에 노출되지 않는다. 현재 PC의 실제 패스트핑과 TCP 자동 조정 조회가 정상 JSON을 반환했고, 시작 트레이 작업이 없을 때 JSON을 출력한 뒤 `exit 0`으로 끝나는 분기도 동일 실행기로 검증했다. 전체 Node 테스트 167개, 구문 검사, 프로덕션 앱 빌드와 lint가 통과했으며 0.3.13 변경 기록에 반영했다.
@@ -520,6 +521,7 @@ Last Updated: 2026-09-15 10:38
 - REPORT 응답에는 이메일·사용자명·시스템 경로 등 개인정보와 민감한 진단 원문을 기록하지 않는다.
 
 ## Pending Tasks
+1. 문제 청크가 있는 환경에서 0.3.14 개발본 또는 다음 설치본으로 같은 시간대를 열어 검정 화면이 복구되는지 확인한다. 재현되면 진단 ZIP의 `blackbox-events.log`에서 `timeline-gap`, `segment-error`, `load-timeout`, `seek-timeout` 중 어느 단계인지 확인하고 실제 청크도 함께 분석한다.
 1. 0.3.8 설치본을 NVIDIA 560.94·GTX 1060 환경에서 실행해 DXVK 3.x가 비호환으로 표시되고 v2.7.1이 기본 선택되며 교체 후 게임 흰 화면이 사라지는지 확인한다.
 1. 0.3.8 설치본에서 GitHub 접근을 차단한 채 검증된 DXVK의 게임 적용 파일을 제거하고, 관리 창이 로컬 버전을 표시하며 다운로드 없이 `게임에 적용`을 완료하는지 확인한다.
 1. 0.3.8 설치본을 RX 570·Polaris 레거시 드라이버 환경에서 실행해 기본 helper 실패 후 레거시 모드가 설정을 조회·적용하는지 확인한다.
@@ -599,6 +601,7 @@ Last Updated: 2026-09-15 10:38
 20. 마비노기 전면 창에서 `2 누름 → 3 누름 → 일반 키 4 누름·해제 → 3 해제 → 2 해제` 순서로 실제 입력 전환을 확인한다.
 
 ## Known Issues
+- 이번 수정은 편집기 청크 전환·seek 실패를 복구하지만 Windows Graphics Capture 자체가 검정 픽셀을 전달해 정상 MP4로 인코딩한 경우까지 영상 내용을 복원하지는 못한다. 새 로그로 재생 경로 이상은 판별할 수 있으나 실제 픽셀 검정 여부를 확정하려면 문제 청크가 필요하다.
 - DXVK 3.x 드라이버 호환 차단은 진단에서 확인된 NVIDIA 560.94 이하 경로를 우선 방어한다. AMD·Intel Windows 드라이버의 Vulkan 기능은 버전 문자열만으로 일관되게 판정하기 어려워 현재 자동 차단 대상에 포함하지 않았다.
 - 진단 환경의 `ERR_NETWORK_ACCESS_DENIED`는 DXVK 로컬 재적용과 별개인 방화벽·보안 프로그램의 앱 네트워크 차단이다. 오프라인 적용 개선으로 기능은 복구할 수 있지만 실제 최신 버전 확인과 앱 자동 업데이트에는 해당 차단 해제가 필요하다.
 - Radeon 레거시 재시도는 현대 AMD 환경과 로컬 두 모드 실행까지 검증했지만 RX 570 문제 환경에서 실제 ADLX 조회·적용 성공 여부는 다음 설치본 확인이 필요하다. 양 모드 모두 드라이버 내부에서 충돌하면 설정을 변경하지 않고 오류 코드만 표시한다.
@@ -726,6 +729,7 @@ Last Updated: 2026-09-15 10:38
 - `vite.config.mjs`: Svelte 렌더러 빌드 설정
 
 ## Recent Changes
+- 영상 추출 편집기의 프레임 데이터 준비 전 seek를 차단하고, 청크 로딩·seek timeout 1회 자동 재시도와 경계 선택 보정을 추가했다. 편집기 재생 단계는 진단 ZIP에 포함되는 블랙박스 이벤트 로그로 기록한다.
 - 진단 ZIP마다 UUID를 파일명·시스템 요약·`report.json`에 넣고 성공적으로 추출한 UUID만 AppData에 기록하도록 변경했다.
 - 앱 실행과 업데이트 확인에 REPORT ETag 조건부 조회를 연결하고 소유 UUID의 미확인 답변을 기존 흰색 모달 디자인으로 표시한다.
 - 답변 후 7일이 지난 항목을 정리하는 스크립트·일일 GitHub Actions를 추가하고 디자인 확인용 강제 REPORT 응답은 제거했다.
@@ -1554,4 +1558,4 @@ Last Updated: 2026-09-15 10:38
 - 정확 재인코딩의 첫 PCM sample 내부에서 요청 시점 전 frame을 제거해 AAC frame 경계의 최대 약 21ms 선행도 없앴다. 실제 비정렬 시작점 추출은 통과했지만 실행 중 recorder 잠금 때문에 배포용 local bin 갱신은 남아 있다.
 
 ## Next Recommended Step
-네 제보 환경에서 0.3.13 업데이트 후 패스트핑·TCP 자동 조정·Windows 시작 트레이 설정 조회가 정상화됐는지 재확인한다.
+문제 환경의 실제 청크로 0.3.14 편집기 재생을 확인하고, 계속 검정 화면이면 새 `editor-playback` 로그와 해당 청크를 함께 받아 캡처 원본과 편집기 문제를 확정한다.

@@ -361,6 +361,7 @@ test("고정 시점 블랙박스 추출 편집 창과 구간 remux가 연결된�
     managerSource,
     mainSource,
     preloadSource,
+    managerPreloadSource,
     editorSource,
     editorScript,
     editorStyle,
@@ -370,6 +371,7 @@ test("고정 시점 블랙박스 추출 편집 창과 구간 remux가 연결된�
     readFile(new URL("blackbox-manager.html", root), "utf8"),
     readFile(new URL("electron/main.mjs", root), "utf8"),
     readFile(new URL("electron/blackbox-editor-preload.cjs", root), "utf8"),
+    readFile(new URL("electron/blackbox-manager-preload.cjs", root), "utf8"),
     readFile(new URL("blackbox-editor.html", root), "utf8"),
     readFile(new URL("web/blackbox-editor.js", root), "utf8"),
     readFile(new URL("web/blackbox-editor.css", root), "utf8"),
@@ -444,6 +446,18 @@ test("고정 시점 블랙박스 추출 편집 창과 구간 remux가 연결된�
   assert.match(preloadSource, /blackbox-editor:set-enabled/)
   assert.match(preloadSource, /onExtractProgress/)
   assert.match(preloadSource, /blackbox-editor:extract/)
+  assert.match(preloadSource, /blackbox-editor:report-playback/)
+  assert.match(managerPreloadSource, /blackbox-manager:report-playback/)
+  assert.match(managerSource, /"reportPlayback"/)
+  assert.match(mainSource, /function logBlackboxEditorPlayback\(value\)/)
+  assert.match(mainSource, /"editor-playback"/)
+  assert.match(mainSource, /blackbox-editor:report-playback/)
+  assert.match(mainSource, /blackbox-manager:report-playback/)
+  assert.match(editorScript, /video\.readyState < HTMLMediaElement\.HAVE_CURRENT_DATA/)
+  assert.match(editorScript, /recoverCurrentVideo\("load-timeout"\)/)
+  assert.match(editorScript, /recoverCurrentVideo\("seek-timeout"\)/)
+  assert.match(editorScript, /sourceUrl\.searchParams\.set\("retry"/)
+  assert.match(editorScript, /Math\.abs\(time - segment\.timelineStart\) < 0\.001/)
   assert.match(editorSource, /class="gap-policy"/)
   assert.match(editorSource, /건너뛰고 이어붙이기/)
   assert.match(editorSource, /class="playback-speed"/)
