@@ -23,6 +23,7 @@ struct Options {
   bool altEnterEnabled = false;
   int cursorScalePercent = 100;
   bool restoreOnly = false;
+  DWORD restoreCursorBaseSize = 0;
 };
 
 Options parseOptions(int count, wchar_t** values) {
@@ -47,6 +48,9 @@ Options parseOptions(int count, wchar_t** values) {
     }
     else if (name == L"restore-only") {
       options.restoreOnly = value == L"1";
+    }
+    else if (name == L"restore-cursor-base-size") {
+      options.restoreCursorBaseSize = static_cast<DWORD>(std::stoul(value));
     }
   }
   const bool validCursorScale =
@@ -110,6 +114,27 @@ bool processRunning(HANDLE process) {
   return process && WaitForSingleObject(process, 0) == WAIT_TIMEOUT;
 }
 
+DWORD readCursorBaseSize() {
+  DWORD value = 0;
+  DWORD size = sizeof(value);
+  const LSTATUS result = RegGetValueW(
+    HKEY_CURRENT_USER,
+    L"Control Panel\\Cursors",
+    L"CursorBaseSize",
+    RRF_RT_REG_DWORD,
+    nullptr,
+    &value,
+    &size
+  );
+  if (result == ERROR_FILE_NOT_FOUND) {
+    return static_cast<DWORD>(std::max(1, GetSystemMetrics(SM_CXCURSOR)));
+  }
+  if (result != ERROR_SUCCESS || value == 0) {
+    throw std::runtime_error("Windows 마우스 커서 크기를 확인하지 못했습니다");
+  }
+  return value;
+}
+
 void restoreSystemCursors() {
   if (!SystemParametersInfoW(
     SPI_SETCURSORS,
@@ -121,45 +146,68 @@ void restoreSystemCursors() {
   }
 }
 
-struct SystemCursorDefinition {
-  LPCWSTR resource;
-  DWORD identifier;
-};
+void setCursorBaseSize(DWORD value) {
+  if (value == 0 || value > 512) {
+    throw std::runtime_error("Windows 마우스 커서 크기 값이 올바르지 않습니다");
+  }
+  const LSTATUS result = RegSetKeyValueW(
+    HKEY_CURRENT_USER,
+    L"Control Panel\\Cursors",
+    L"CursorBaseSize",
+    REG_DWORD,
+    &value,
+    sizeof(value)
+  );
+  if (result != ERROR_SUCCESS) {
+    throw std::runtime_error("Windows 마우스 커서 크기를 저장하지 못했습니다");
+  }
+  restoreSystemCursors();
+}
 
-const SystemCursorDefinition systemCursorDefinitions[] = {
-  { IDC_ARROW, OCR_NORMAL },
-  { IDC_IBEAM, OCR_IBEAM },
-  { IDC_WAIT, OCR_WAIT },
-  { IDC_CROSS, OCR_CROSS },
-  { IDC_UPARROW, OCR_UP },
-  { IDC_SIZENWSE, OCR_SIZENWSE },
-  { IDC_SIZENESW, OCR_SIZENESW },
-  { IDC_SIZEWE, OCR_SIZEWE },
-  { IDC_SIZENS, OCR_SIZENS },
-  { IDC_SIZEALL, OCR_SIZEALL },
-  { IDC_NO, OCR_NO },
-  { IDC_HAND, OCR_HAND },
-  { IDC_APPSTARTING, OCR_APPSTARTING },
+class ForegroundGameCache {
+public:
+  explicit ForegroundGameCache(fs::path gamePath)
+    : gamePath_(lowerPath(gamePath.wstring())) {}
+
+  bool matches() {
+    const HWND foreground = GetForegroundWindow();
+    DWORD pid = 0;
+    if (foreground) GetWindowThreadProcessId(foreground, &pid);
+    if (foreground == lastWindow_ && pid == lastPid_) return lastMatch_;
+    lastWindow_ = foreground;
+    lastPid_ = pid;
+    const auto foregroundPath = processImagePath(pid);
+    lastMatch_ =
+      !foregroundPath.empty() && lowerPath(foregroundPath) == gamePath_;
+    return lastMatch_;
+  }
+
+private:
+  std::wstring gamePath_;
+  HWND lastWindow_ = nullptr;
+  DWORD lastPid_ = 0;
+  bool lastMatch_ = false;
 };
 
 class CursorScaleGuard {
 public:
   CursorScaleGuard(fs::path gamePath, int scalePercent)
-    : gamePath_(std::move(gamePath)),
+    : foregroundGame_(std::move(gamePath)),
       scalePercent_(scalePercent) {
-    restoreSystemCursors();
-    baseWidth_ = std::max(1, GetSystemMetrics(SM_CXCURSOR));
-    baseHeight_ = std::max(1, GetSystemMetrics(SM_CYCURSOR));
+    originalBaseSize_ = readCursorBaseSize();
   }
 
   ~CursorScaleGuard() {
     if (!active_) return;
-    SystemParametersInfoW(SPI_SETCURSORS, 0, nullptr, SPIF_SENDCHANGE);
+    try {
+      setCursorBaseSize(originalBaseSize_);
+    } catch (...) {
+    }
   }
 
   bool update() {
     const bool shouldBeActive =
-      scalePercent_ != 100 && isTargetGameForeground(gamePath_);
+      scalePercent_ != 100 && foregroundGame_.matches();
     if (shouldBeActive == active_) return false;
     if (shouldBeActive) apply();
     else restore();
@@ -168,7 +216,7 @@ public:
 
   void restore() {
     if (!active_) return;
-    restoreSystemCursors();
+    setCursorBaseSize(originalBaseSize_);
     active_ = false;
   }
 
@@ -176,37 +224,31 @@ public:
     return active_;
   }
 
-private:
-  void apply() {
-    restoreSystemCursors();
-    const int width = std::max(1, MulDiv(baseWidth_, scalePercent_, 100));
-    const int height = std::max(1, MulDiv(baseHeight_, scalePercent_, 100));
-    for (const auto& definition : systemCursorDefinitions) {
-      const HCURSOR source = LoadCursorW(nullptr, definition.resource);
-      const HCURSOR scaled = static_cast<HCURSOR>(CopyImage(
-        source,
-        IMAGE_CURSOR,
-        width,
-        height,
-        LR_COPYFROMRESOURCE
-      ));
-      if (!scaled) {
-        restoreSystemCursors();
-        throw std::runtime_error("Windows 마우스 커서 크기를 변경하지 못했습니다");
-      }
-      if (!SetSystemCursor(scaled, definition.identifier)) {
-        DestroyCursor(scaled);
-        restoreSystemCursors();
-        throw std::runtime_error("Windows 마우스 커서 크기를 적용하지 못했습니다");
-      }
-    }
-    active_ = true;
+  DWORD originalBaseSize() const {
+    return originalBaseSize_;
   }
 
-  fs::path gamePath_;
+private:
+  void apply() {
+    const DWORD scaledBaseSize = static_cast<DWORD>(std::max(
+      1,
+      MulDiv(static_cast<int>(originalBaseSize_), scalePercent_, 100)
+    ));
+    try {
+      setCursorBaseSize(scaledBaseSize);
+      active_ = true;
+    } catch (...) {
+      try {
+        setCursorBaseSize(originalBaseSize_);
+      } catch (...) {
+      }
+      throw;
+    }
+  }
+
+  ForegroundGameCache foregroundGame_;
   int scalePercent_ = 100;
-  int baseWidth_ = 32;
-  int baseHeight_ = 32;
+  DWORD originalBaseSize_ = 32;
   bool active_ = false;
 };
 
@@ -229,6 +271,7 @@ void writeStatus(
   DWORD pid,
   bool cursorActive = false,
   int cursorScalePercent = 100,
+  DWORD originalCursorBaseSize = 0,
   const std::string& error = {}
 ) {
   fs::create_directories(statusPath.parent_path());
@@ -240,6 +283,7 @@ void writeStatus(
     << ",\"pid\":" << pid
     << ",\"cursorActive\":" << (cursorActive ? "true" : "false")
     << ",\"cursorScalePercent\":" << cursorScalePercent
+    << ",\"originalCursorBaseSize\":" << originalCursorBaseSize
     << ",\"error\":";
   if (error.empty()) output << "null";
   else output << "\"입력 기능 helper 오류\"";
@@ -347,8 +391,11 @@ int wmain(int count, wchar_t** values) {
   Options options;
   try {
     options = parseOptions(count, values);
+    if (options.restoreCursorBaseSize > 0) {
+      setCursorBaseSize(options.restoreCursorBaseSize);
+    }
     if (options.restoreOnly) {
-      restoreSystemCursors();
+      if (options.restoreCursorBaseSize == 0) restoreSystemCursors();
       ReleaseMutex(mutex);
       CloseHandle(mutex);
       return 0;
@@ -370,7 +417,8 @@ int wmain(int count, wchar_t** values) {
       true,
       GetCurrentProcessId(),
       false,
-      options.cursorScalePercent
+      options.cursorScalePercent,
+      cursorScaleGuard.originalBaseSize()
     );
 
     const UINT_PTR healthTimer = SetTimer(nullptr, 0, 50, nullptr);
@@ -389,7 +437,8 @@ int wmain(int count, wchar_t** values) {
           true,
           GetCurrentProcessId(),
           cursorScaleGuard.active(),
-          options.cursorScalePercent
+          options.cursorScalePercent,
+          cursorScaleGuard.originalBaseSize()
         );
       }
     }
@@ -400,7 +449,8 @@ int wmain(int count, wchar_t** values) {
       false,
       GetCurrentProcessId(),
       false,
-      options.cursorScalePercent
+      options.cursorScalePercent,
+      cursorScaleGuard.originalBaseSize()
     );
     CloseHandle(parent);
     ReleaseMutex(mutex);
@@ -414,6 +464,7 @@ int wmain(int count, wchar_t** values) {
         GetCurrentProcessId(),
         false,
         options.cursorScalePercent,
+        options.restoreCursorBaseSize,
         error.what()
       );
     }

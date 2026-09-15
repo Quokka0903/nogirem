@@ -2668,6 +2668,13 @@ function inputGuardHelperRequired(setting) {
   return setting.enabled || setting.cursorScalePercent !== 100
 }
 
+function inputGuardCursorRestoreSize(status) {
+  const size = Number(status?.originalCursorBaseSize)
+  return status?.cursorActive && Number.isInteger(size) && size > 0 && size <= 512
+    ? size
+    : 0
+}
+
 async function getInputGuardSetting() {
   const paths = getInputGuardPaths()
   const [settings, status] = await Promise.all([
@@ -2709,6 +2716,8 @@ async function launchInputGuardHelper(settingValue) {
     throw new Error("마비노기 실행 경로를 확인하지 못했습니다")
   }
   const paths = getInputGuardPaths()
+  const previousStatus = await readRuntimeStatusJson(paths.statusPath)
+  const restoreCursorBaseSize = inputGuardCursorRestoreSize(previousStatus)
   await mkdir(paths.directory, { recursive: true })
   await Promise.all([
     unlink(paths.statusPath).catch(() => {}),
@@ -2721,6 +2730,9 @@ async function launchInputGuardHelper(settingValue) {
     `--parent-pid=${process.pid}`,
     `--alt-enter-enabled=${setting.enabled ? 1 : 0}`,
     `--cursor-scale-percent=${setting.cursorScalePercent}`,
+    ...(restoreCursorBaseSize > 0
+      ? [`--restore-cursor-base-size=${restoreCursorBaseSize}`]
+      : []),
   ], {
     windowsHide: true,
     stdio: "ignore",
@@ -2803,14 +2815,23 @@ async function setInputGuardSetting(value) {
 }
 
 async function ensureInputGuardStarted() {
+  const paths = getInputGuardPaths()
   const setting = normalizeInputGuardSetting(
-    await readJson(getInputGuardPaths().settingsPath),
+    await readJson(paths.settingsPath),
   )
   if (existsSync(inputGuardHelperPath)) {
+    const previousStatus = await readRuntimeStatusJson(paths.statusPath)
+    const restoreCursorBaseSize = inputGuardCursorRestoreSize(previousStatus)
+    const restoreArguments = [
+      "--restore-only=1",
+      ...(restoreCursorBaseSize > 0
+        ? [`--restore-cursor-base-size=${restoreCursorBaseSize}`]
+        : []),
+    ]
     let restored = false
     for (let attempt = 0; attempt < 5 && !restored; attempt += 1) {
       try {
-        await execFileAsync(inputGuardHelperPath, ["--restore-only=1"], {
+        await execFileAsync(inputGuardHelperPath, restoreArguments, {
           windowsHide: true,
           timeout: 3000,
         })

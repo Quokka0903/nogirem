@@ -25,7 +25,7 @@ test("Alt Enter 방지는 마비노기 포그라운드의 Enter 입력만 소비
   assert.match(source, /WaitForSingleObject\(process, 0\) == WAIT_TIMEOUT/)
 })
 
-test("게임 포커스 중에만 시스템 커서를 확대하고 종료 시 복원한다", async () => {
+test("게임 포커스 중에만 접근성 커서 크기를 바꾸고 원래 값으로 복원한다", async () => {
   const source = await readFile(
     new URL("native/input-guard-helper/main.cpp", root),
     "utf8",
@@ -34,12 +34,21 @@ test("게임 포커스 중에만 시스템 커서를 확대하고 종료 시 복
   assert.match(source, /class CursorScaleGuard/)
   assert.match(
     source,
-    /scalePercent_ != 100 && isTargetGameForeground\(gamePath_\)/,
+    /scalePercent_ != 100 && foregroundGame_\.matches\(\)/,
   )
-  assert.match(source, /CopyImage\([\s\S]*IMAGE_CURSOR/)
-  assert.match(source, /SetSystemCursor\(scaled, definition\.identifier\)/)
+  assert.match(source, /RegGetValueW\([\s\S]*L"CursorBaseSize"/)
+  assert.match(source, /RegSetKeyValueW\([\s\S]*L"CursorBaseSize"/)
+  assert.match(source, /MulDiv\(static_cast<int>\(originalBaseSize_\), scalePercent_, 100\)/)
   assert.match(source, /SystemParametersInfoW\([\s\S]*SPI_SETCURSORS/)
-  assert.match(source, /if \(options\.restoreOnly\)[\s\S]*restoreSystemCursors\(\)/)
+  assert.match(source, /originalCursorBaseSize/)
+  assert.match(
+    source,
+    /if \(options\.restoreCursorBaseSize > 0\)[\s\S]*setCursorBaseSize/,
+  )
+  assert.match(
+    source,
+    /foreground == lastWindow_ && pid == lastPid_[\s\S]*return lastMatch_/,
+  )
 })
 
 test("마비노기 입력 기능 설정은 앱 수명주기와 고급 기능 UI에 연결된다", async () => {
@@ -59,7 +68,9 @@ test("마비노기 입력 기능 설정은 앱 수명주기와 고급 기능 UI�
   assert.match(main, /inputGuardCursorScalePercentages = new Set\(\[75, 100, 125, 150, 200\]\)/)
   assert.match(main, /`--alt-enter-enabled=\$\{setting\.enabled \? 1 : 0\}`/)
   assert.match(main, /`--cursor-scale-percent=\$\{setting\.cursorScalePercent\}`/)
-  assert.match(main, /\["--restore-only=1"\]/)
+  assert.match(main, /"--restore-only=1"/)
+  assert.match(main, /function inputGuardCursorRestoreSize\(status\)/)
+  assert.match(main, /`--restore-cursor-base-size=\$\{restoreCursorBaseSize\}`/)
   assert.match(main, /ensureInputGuardStarted/)
   assert.match(main, /stopInputGuardHelper\(\)/)
   assert.match(preload, /getInputGuardSetting/)
