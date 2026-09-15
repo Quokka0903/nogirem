@@ -58,7 +58,7 @@ test("개발 앱은 빈 전용 포트를 찾아 동일 서버 주소만 사용�
   assert.match(developmentLauncher, /document\.includes\("마비노기 렘 부스터"\)/)
   assert.match(developmentLauncher, /`--dev-server-url=\$\{serverUrl\}`/)
   assert.match(electronMain, /function resolveDevelopmentServerUrl\(\)/)
-  assert.match(electronMain, /developmentPageUrl\("dxvk-manager\.html"\)/)
+  assert.match(electronMain, /developmentPageUrl\("blackbox-manager\.html"\)/)
   assert.doesNotMatch(electronMain, /localhost:5173/)
 })
 

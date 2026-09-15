@@ -162,7 +162,7 @@ void restoreSystemCursors() {
     SPI_SETCURSORS,
     0,
     nullptr,
-    SPIF_SENDCHANGE
+    SPIF_UPDATEINIFILE | SPIF_SENDCHANGE
   )) {
     throw std::runtime_error("Windows 마우스 커서를 복원하지 못했습니다");
   }
@@ -172,18 +172,18 @@ void setCursorBaseSize(DWORD value) {
   if (value == 0 || value > 512) {
     throw std::runtime_error("Windows 마우스 커서 크기 값이 올바르지 않습니다");
   }
-  const LSTATUS result = RegSetKeyValueW(
-    HKEY_CURRENT_USER,
-    L"Control Panel\\Cursors",
-    L"CursorBaseSize",
-    REG_DWORD,
-    &value,
-    sizeof(value)
-  );
-  if (result != ERROR_SUCCESS) {
-    throw std::runtime_error("Windows 마우스 커서 크기를 저장하지 못했습니다");
+  constexpr UINT setCursorBaseSizeAction = 0x2029;
+  if (!SystemParametersInfoW(
+    setCursorBaseSizeAction,
+    0,
+    reinterpret_cast<PVOID>(static_cast<ULONG_PTR>(value)),
+    SPIF_UPDATEINIFILE | SPIF_SENDCHANGE
+  )) {
+    throw std::runtime_error("Windows 마우스 커서 크기를 적용하지 못했습니다");
   }
-  restoreSystemCursors();
+  if (readCursorBaseSize() != value) {
+    throw std::runtime_error("Windows 마우스 커서 크기 적용을 확인하지 못했습니다");
+  }
 }
 
 class ForegroundGameCache {

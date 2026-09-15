@@ -1,15 +1,17 @@
 # Cursor AI Handoff
 
-Last Updated: 2026-09-16 03:29
+Last Updated: 2026-09-16 03:35
 
 ## Current Objective
 0.3.14 블랙박스 재생 개선과 마비노기 포커스 전용 마우스 커서 크기 기능을 검증한다.
 
 ## Current Status
+- 이전 커서 수정은 `CursorBaseSize` 레지스트리를 직접 변경하고 `SPI_SETCURSORS(0x57)`로 파일을 다시 읽었지만, Windows 접근성 설정이 실제 크기 변경에 사용하는 비공개 `SystemParametersInfo(0x2029)`를 호출하지 않아 레지스트리 값만 바뀌고 활성 커서 크기는 바뀌지 않았다. helper가 `0x2029`에 목표 크기를 전달하고 레지스트리 readback까지 검증하도록 수정했다. 현재 PC에서 최종 helper로 `32→48→32` 실제 적용·복원과 두 실행의 종료 코드 0을 확인했다. 최종 x64 helper는 305,664바이트·SHA-256 `B47FB9F6…3B57180`이다.
+- Vulkan 관리 창은 개발 모드에서 독립 정적 HTML까지 Vite의 첫 변환을 기다리는 경로가 남아 있었다. 개발 모드도 소스 `dxvk-manager.html`을 `loadFile`로 직접 열고 `paintWhenInitiallyHidden`을 명시했다. 창 생성·DOM 준비·문서 로드·표시 준비 경과 시간을 `startup.log`에 남겨 이후 지연이 재현되면 정확한 단계를 구분한다.
 - 개발 PC에서 포트 5173을 서로 다른 Node 프로세스가 `127.0.0.1`과 `0.0.0.0`으로 동시에 점유한 것을 확인했다. 기존 `app:dev`는 Nogirem Vite가 충돌을 피해 다음 포트로 이동해도 `wait-on tcp:5173`이 타 프로젝트 서버를 성공으로 판정하고 Electron의 모든 개발 창도 5173을 하드코딩해 다른 앱을 표시했다. `scripts/run-app-dev.mjs`가 매 실행 시 빈 루프백 포트를 배정하고 Nogirem 문서 응답을 검증한 뒤 `--dev-server-url`로 전달하도록 교체했다. 관리자 재실행에도 인자가 보존되며 주 창과 Vulkan·가이드·블랙박스 보조 창이 모두 같은 동적 주소를 사용한다.
 - Vulkan 관리 창은 캐시된 v3.1을 먼저 선택한 뒤 온라인에서 v3.1.1을 확인해도 이전 자동 선택을 보존해 최신 버전이 기본 선택되지 않았다. 사용자 변경 여부를 별도로 추적해 직접 선택하기 전에는 최신 호환 권장 버전을 선택하도록 수정했다. 창 표시 전 `opacity: 0`과 300ms 페이드인이 검은 배경 노출을 만들던 경로도 제거해 `ready-to-show`에서 완성 화면을 즉시 표시한다.
 - 커서 설정은 200%로 저장되고 helper도 실행됐지만 게임 포커스를 감지하지 못하면 `cursorActive`가 false로 유지됐다. 보호된 Client.exe의 전체 경로 조회가 실패하는 환경에서도 `CreateToolhelp32Snapshot`의 프로세스 파일명으로 마비노기를 재확인하도록 보강했다. 전체 경로를 읽을 수 있으면 기존 정확 경로 비교를 우선하며, 포그라운드 창·PID 캐시로 반복 경로 조회는 하지 않는다. 최종 x64 helper는 305,664바이트·SHA-256 `9B1E083A…F9C82B3`이다. 전체 Node 테스트 168개, DXVK·입력 targeted 테스트 14개와 프로덕션 빌드가 통과했다.
-- 최초 커서 구현의 `CopyImage`·`SetSystemCursor` 방식은 Windows 접근성 설정과 달라 마비노기 커서에 반영되지 않았다. 실제 Windows 설정이 사용하는 `HKCU\Control Panel\Cursors\CursorBaseSize` DWORD를 확인했고 현재 PC에서 `32→40→32` 임시 변경·`SPI_SETCURSORS` 반영·원상복원을 검증했다. helper는 시작 시 사용자의 원래 값을 보존하고 마비노기 포커스 중 선택 비율을 적용하며, 포커스 이탈·설정 해제·정상 종료 시 정확한 원래 값을 복원한다. 활성 상태와 원래 값은 status에 기록해 강제 종료 뒤 다음 앱 시작에서도 복구한다.
+- 최초 커서 구현의 `CopyImage`·`SetSystemCursor` 방식도 마비노기 자체 커서에 반영되지 않았다. helper는 시작 시 사용자의 원래 `CursorBaseSize`를 보존하고 마비노기 포커스 중 선택 비율을 적용하며, 포커스 이탈·설정 해제·정상 종료 시 정확한 원래 값을 복원한다. 활성 상태와 원래 값은 status에 기록해 강제 종료 뒤 다음 앱 시작에서도 복구한다.
 - 블랙박스 검정 화면 진단 UUID에 `블랙박스 검정 화면 확인 및 개선` REPORT 답변을 추가했다. 문제 시간대에도 녹화와 청크 생성이 계속됐다는 확인 결과, 기존 로그의 한계, 0.3.14 편집기 복구·로깅 개선, 재발 시 새 진단 ZIP과 문제 시간대 청크를 함께 요청하는 절차를 안내하며 제보자 이름·이메일은 기록하지 않았다.
 - 0.3.13 진단에서 녹화 프로세스와 청크 생성은 문제 시간대에도 계속됐지만, 기존 로그에는 편집기의 청크 선택·프레임 로딩·seek 상태가 없어 검정 프레임 녹화와 재생 실패를 구분할 수 없었다. 편집기는 이제 `loadeddata` 이후에만 seek하고, 청크 로딩 또는 seek가 3초 안에 끝나지 않으면 캐시를 우회해 한 번 다시 연다. 정확한 청크 경계에서 끝난 이전 청크 대신 시작하는 새 청크를 선택하고 마지막 seek는 영상 길이 안쪽으로 제한했다. 청크 로딩·메타데이터·프레임 데이터·seek 완료·오류·timeout·타임라인 빈 구간을 경로 없이 `blackbox-events.log`에 기록한다. 전체 Node 테스트 167개와 프로덕션 Vite 빌드가 통과했다.
 - 배포 커밋 `d29ec18`과 태그 `v0.3.13`을 원격에 푸시하고 [GitHub Release](https://github.com/rubystarashe/nogirem/releases/tag/v0.3.13)로 정식 공개했다. release는 draft·prerelease가 아니며 GitHub 최신 릴리스도 v0.3.13이다. installer·blockmap·`latest.yml`·터보 키 helper 네 자산의 GitHub 크기와 SHA-256 digest가 로컬 검증값과 모두 일치하고 모두 uploaded 상태다. 배포 시점 원격 `master`, 태그와 Release 커밋은 `d29ec18`로 일치한다.
@@ -364,6 +366,8 @@ Last Updated: 2026-09-16 03:29
 - 프로덕션 빌드, Electron 구문 검사, 전체 테스트 20개와 편집기 린트가 통과했다.
 
 ## Architecture / Important Decisions
+- Windows 접근성 커서 크기 변경은 레지스트리 직접 쓰기나 `SPI_SETCURSORS(0x57)`만으로 처리하지 않는다. 설정 UI와 같은 `SystemParametersInfo(0x2029, 0, size, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE)`를 사용하고 `CursorBaseSize` readback으로 성공을 검증한다.
+- Vulkan 관리 HTML은 빌드 산출물 또는 소스 정적 파일을 직접 `loadFile`한다. 개발 서버는 Svelte 주 화면과 다른 동적 보조 화면에만 사용한다.
 - 개발 렌더러 주소를 고정 포트로 가정하지 않는다. 개발 실행기가 빈 `127.0.0.1` 포트를 선택하고 Nogirem HTML 표식을 확인한 주소만 `--dev-server-url`로 넘기며, Electron은 허용된 루프백 HTTP 주소만 사용한다.
 - DXVK 버전 셀렉터는 사용자가 직접 변경했을 때만 선택을 유지한다. 초기 캐시 상태에서 온라인 조회로 최신 버전이 바뀌면 `recommended`의 최신 호환 버전을 자동 선택한다.
 - 게임 커서 크기는 Windows 접근성 설정과 동일한 `CursorBaseSize` DWORD를 사용한다. helper 시작 시 원래 값을 읽고 변경·복원 때마다 `SPI_SETCURSORS`로 반영한다. 활성 상태의 status에는 `originalCursorBaseSize`를 기록하며 다음 앱은 `--restore-cursor-base-size`를 전달한 restore-only 실행으로 강제 종료 잔여값을 복구한다. 게임 프로세스 DLL 주입이나 API hook은 사용하지 않는다.
@@ -745,6 +749,7 @@ Last Updated: 2026-09-16 03:29
 - `vite.config.mjs`: Svelte 렌더러 빌드 설정
 
 ## Recent Changes
+- 커서 helper를 Windows 접근성 실제 크기 API `0x2029`로 교체하고 최종 바이너리의 적용·복원을 실행 검증했다. 개발 Vulkan 관리 창은 Vite를 우회해 로컬 파일로 즉시 로드하며 단계별 시간 로그를 남긴다.
 - `npm run app:dev`를 동적 전용 포트 실행기로 교체하고 Electron 개발 URL의 5173 하드코딩을 제거했다. 다른 Vite 프로젝트가 실행 중이어도 Nogirem 서버 응답을 확인한 뒤 앱을 시작한다.
 - Vulkan 관리 창의 최신 호환 버전 자동 선택을 고치고 300ms 검은 페이드인을 제거했다. 커서 helper는 전체 경로 조회 실패 시 Win32 프로세스 스냅샷의 파일명으로 게임을 감지한다.
 - 게임에 반영되지 않는 `SetSystemCursor` 교체를 Windows 접근성 `CursorBaseSize` 변경으로 대체하고 원래 값의 강제 종료 복구와 포그라운드 PID 경로 캐시를 추가했다.
@@ -1578,4 +1583,4 @@ Last Updated: 2026-09-16 03:29
 - 정확 재인코딩의 첫 PCM sample 내부에서 요청 시점 전 frame을 제거해 AAC frame 경계의 최대 약 21ms 선행도 없앴다. 실제 비정렬 시작점 추출은 통과했지만 실행 중 recorder 잠금 때문에 배포용 local bin 갱신은 남아 있다.
 
 ## Next Recommended Step
-기존 개발 앱과 서버를 모두 종료하고 새 `npm run app:dev`가 출력하는 동적 URL로 재실행한 뒤, Vulkan 관리 창의 즉시 표시·최신 선택과 마비노기 포커스 커서 적용을 다시 확인한다.
+현재 개발 앱은 교체 전 helper를 메모리에 올렸으므로 완전히 종료하고 `npm run app:dev`로 재실행한다. Vulkan 창을 열어 표시 시간을 확인하고 마비노기 포커스에서 150% 커서 적용을 확인한다. 재발 시 새 `startup.log`의 Vulkan 단계별 ms와 input-guard status로 즉시 분리한다.

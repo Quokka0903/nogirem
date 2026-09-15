@@ -37,7 +37,12 @@ test("게임 포커스 중에만 접근성 커서 크기를 바꾸고 원래 값
     /scalePercent_ != 100 && foregroundGame_\.matches\(\)/,
   )
   assert.match(source, /RegGetValueW\([\s\S]*L"CursorBaseSize"/)
-  assert.match(source, /RegSetKeyValueW\([\s\S]*L"CursorBaseSize"/)
+  assert.match(source, /setCursorBaseSizeAction = 0x2029/)
+  assert.match(
+    source,
+    /SystemParametersInfoW\([\s\S]*setCursorBaseSizeAction[\s\S]*SPIF_UPDATEINIFILE \| SPIF_SENDCHANGE/,
+  )
+  assert.match(source, /readCursorBaseSize\(\) != value/)
   assert.match(source, /MulDiv\(static_cast<int>\(originalBaseSize_\), scalePercent_, 100\)/)
   assert.match(source, /SystemParametersInfoW\([\s\S]*SPI_SETCURSORS/)
   assert.match(source, /originalCursorBaseSize/)

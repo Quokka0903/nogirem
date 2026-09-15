@@ -273,4 +273,11 @@ test("관리 창의 확인·설치 완료 상태를 메인 화면에 즉시 전�
     dxvkManagerWindowSource,
     /ready-to-show[\s\S]*window\.setOpacity\(1\)[\s\S]*window\.show\(\)/,
   )
+  assert.match(dxvkManagerWindowSource, /paintWhenInitiallyHidden: true/)
+  assert.match(
+    dxvkManagerWindowSource,
+    /sourceManagerPath[\s\S]*window\.loadFile\([\s\S]*process\.argv\.includes\("--dev"\)[\s\S]*sourceManagerPath/,
+  )
+  assert.doesNotMatch(dxvkManagerWindowSource, /developmentPageUrl/)
+  assert.match(dxvkManagerWindowSource, /Vulkan 관리 창 표시 준비/)
 })

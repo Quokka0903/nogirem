@@ -6241,6 +6241,8 @@ function openDxvkManager() {
     return
   }
 
+  const openedAt = Date.now()
+  writeStartupLog("Vulkan 관리 창 생성 시작")
   const window = new BrowserWindow({
     width: 560,
     height: 430,
@@ -6255,12 +6257,16 @@ function openDxvkManager() {
     frame: false,
     roundedCorners: true,
     backgroundColor: "#101214",
+    paintWhenInitiallyHidden: true,
     webPreferences: {
       preload: dxvkManagerPreloadPath,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
     },
+  })
+  window.webContents.once("dom-ready", () => {
+    writeStartupLog(`Vulkan 관리 창 DOM 준비 ${Date.now() - openedAt}ms`)
   })
   disableProductionRefresh(window)
   closeWindowOnEscape(window)
@@ -6293,6 +6299,7 @@ function openDxvkManager() {
   }
   window.once("ready-to-show", () => {
     if (window.isDestroyed()) return
+    writeStartupLog(`Vulkan 관리 창 표시 준비 ${Date.now() - openedAt}ms`)
     window.center()
     window.setOpacity(1)
     window.show()
@@ -6310,13 +6317,15 @@ function openDxvkManager() {
     if (dxvkManagerWindow === window) dxvkManagerWindow = null
     if (!applicationExitInProgress && !closedForTray) focusPrimaryWindow()
   })
+  const sourceManagerPath = join(root, "dxvk-manager.html")
   const builtManagerPath = join(root, "dist", "dxvk-manager.html")
-  const loading = process.argv.includes("--dev")
-    ? window.loadURL(developmentPageUrl("dxvk-manager.html"))
-    : window.loadFile(existsSync(builtManagerPath)
-      ? builtManagerPath
-      : join(root, "dxvk-manager.html"))
+  const loading = window.loadFile(
+    process.argv.includes("--dev") || !existsSync(builtManagerPath)
+      ? sourceManagerPath
+      : builtManagerPath,
+  )
   void loading
+    .then(() => writeStartupLog(`Vulkan 관리 창 문서 로드 ${Date.now() - openedAt}ms`))
     .catch(error => showWindowLoadError(window, error))
     .catch(error => console.error("DXVK 관리 화면 로드 실패", error))
 }
