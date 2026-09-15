@@ -1322,6 +1322,20 @@ button.direct-donation-card:hover {
   gap: 18px;
 }
 
+.developer-tool-row-nested {
+  row-gap: 8px;
+}
+
+.developer-tool-subsetting {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  color: #666;
+  font-size: 10px;
+}
+
 .developer-tool-stack {
   display: grid;
   gap: 5px;

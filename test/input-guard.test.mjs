@@ -65,14 +65,17 @@ test("게임 포커스 중에만 접근성 커서 크기를 바꾸고 원래 값
   assert.match(source, /foregroundPid/)
   assert.match(source, /foregroundProcessName/)
   assert.match(source, /cursorScalePercent >= 75[\s\S]*cursorScalePercent <= 800/)
-  assert.match(source, /std::clamp\([\s\S]*scalePercent_ \+ \(direction > 0 \? 25 : -25\)[\s\S]*800/)
+  assert.match(source, /std::clamp\([\s\S]*scalePercent_ \+ steps \* 25[\s\S]*800/)
   assert.match(source, /MulDiv\([\s\S]*scalePercent_[\s\S]*256/)
   assert.match(source, /SetWindowsHookExW\([\s\S]*WH_MOUSE_LL/)
+  assert.match(source, /std::thread\([\s\S]*GetMessageW\(&message/)
   assert.match(source, /message != WM_MOUSEWHEEL/)
   assert.match(source, /VK_CONTROL/)
   assert.match(source, /VK_MENU/)
-  assert.match(source, /isTargetGameForeground\(active_->gamePath_\)/)
-  assert.match(source, /cursorScaleGuard_\.adjustScale\(wheelDelta\)/)
+  assert.match(source, /foregroundPid != guard->foregroundGamePid_\.load/)
+  assert.match(source, /pendingWheelSteps_\.fetch_add/)
+  assert.match(source, /takeWheelSteps\(\)[\s\S]*pendingWheelSteps_\.exchange/)
+  assert.match(source, /cursorScaleGuard\.adjustScale\(wheelSteps\)/)
   assert.match(source, /return 1;/)
   assert.match(
     source,
@@ -115,7 +118,10 @@ test("마비노기 입력 기능 설정은 앱 수명주기와 고급 기능 UI�
     /게임 마우스 커서 크기[\s\S]*최대 800%까지 Windows 마우스 커서 크기를 변경합니다/,
   )
   assert.match(app, /mouseCursorScaleOptions = Array\.from/)
-  assert.match(app, /커서 크기 휠 조절/)
+  assert.match(
+    app,
+    /developer-tool-row developer-tool-row-nested[\s\S]*게임 마우스 커서 크기[\s\S]*developer-tool-subsetting[\s\S]*게임 중 휠로 25%씩 조절/,
+  )
   assert.match(app, /Ctrl \+ 휠/)
   assert.match(app, /Alt \+ 휠/)
   assert.match(app, /changeMouseCursorWheelModifier/)

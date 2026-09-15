@@ -2784,7 +2784,7 @@
                           : "사용하기")}
                     </button>
                   </div>
-                  <div class="developer-tool-row">
+                  <div class="developer-tool-row developer-tool-row-nested">
                     <div>
                       <h2>게임 마우스 커서 크기</h2>
                       <p>마비노기 플레이 중에만 최대 800%까지 Windows 마우스 커서 크기를 변경합니다</p>
@@ -2800,23 +2800,20 @@
                         <option value={scalePercent}>{scalePercent}%</option>
                       {/each}
                     </select>
-                  </div>
-                  <div class="developer-tool-row">
-                    <div>
-                      <h2>커서 크기 휠 조절</h2>
-                      <p>마비노기 플레이 중 선택한 보조 키와 휠로 크기를 25%씩 조절합니다</p>
-                    </div>
-                    <select
-                      class="developer-tool-select"
-                      value={mouseCursorWheelModifier}
-                      disabled={!inputGuardSettingLoaded || inputGuardAction}
-                      aria-label="커서 크기 휠 조절"
-                      onchange={changeMouseCursorWheelModifier}
-                    >
-                      {#each mouseCursorWheelModifierOptions as option}
-                        <option value={option.value}>{option.label}</option>
-                      {/each}
-                    </select>
+                    <label class="developer-tool-subsetting">
+                      <span>게임 중 휠로 25%씩 조절</span>
+                      <select
+                        class="developer-tool-select"
+                        value={mouseCursorWheelModifier}
+                        disabled={!inputGuardSettingLoaded || inputGuardAction}
+                        aria-label="커서 크기 휠 조절"
+                        onchange={changeMouseCursorWheelModifier}
+                      >
+                        {#each mouseCursorWheelModifierOptions as option}
+                          <option value={option.value}>{option.label}</option>
+                        {/each}
+                      </select>
+                    </label>
                   </div>
                   {#if inputGuardNotice}
                     <span class="developer-tool-status">{inputGuardNotice}</span>

@@ -2,14 +2,17 @@
 #include <tlhelp32.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cwctype>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 
 namespace fs = std::filesystem;
 using namespace std::chrono_literals;
@@ -222,6 +225,10 @@ public:
     return changed_;
   }
 
+  bool matched() const {
+    return lastMatch_;
+  }
+
   DWORD pid() const {
     return lastPid_;
   }
@@ -294,10 +301,14 @@ public:
     return foregroundGame_.processName();
   }
 
-  bool adjustScale(int direction) {
-    if (direction == 0) return false;
+  bool gameForeground() const {
+    return foregroundGame_.matched();
+  }
+
+  bool adjustScale(int steps) {
+    if (steps == 0) return false;
     const int nextScalePercent = std::clamp(
-      scalePercent_ + (direction > 0 ? 25 : -25),
+      scalePercent_ + steps * 25,
       75,
       800
     );
@@ -340,29 +351,57 @@ private:
 class CursorWheelGuard {
 public:
   CursorWheelGuard(
-    fs::path gamePath,
-    std::wstring modifier,
-    CursorScaleGuard& cursorScaleGuard
+    std::wstring modifier
   )
-    : gamePath_(std::move(gamePath)),
-      modifier_(std::move(modifier)),
-      cursorScaleGuard_(cursorScaleGuard) {
-    active_ = this;
-    hook_ = SetWindowsHookExW(
-      WH_MOUSE_LL,
-      mouseHook,
-      GetModuleHandleW(nullptr),
-      0
-    );
-    if (!hook_) {
-      active_ = nullptr;
+    : modifier_(std::move(modifier)) {
+    active_.store(this, std::memory_order_release);
+    std::promise<bool> started;
+    auto startedFuture = started.get_future();
+    thread_ = std::thread([
+      this,
+      started = std::move(started)
+    ]() mutable {
+      threadId_ = GetCurrentThreadId();
+      hook_ = SetWindowsHookExW(
+        WH_MOUSE_LL,
+        mouseHook,
+        GetModuleHandleW(nullptr),
+        0
+      );
+      MSG message{};
+      PeekMessageW(&message, nullptr, WM_USER, WM_USER, PM_NOREMOVE);
+      started.set_value(hook_ != nullptr);
+      if (!hook_) return;
+      while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
+      }
+      UnhookWindowsHookEx(hook_);
+      hook_ = nullptr;
+    });
+    if (!startedFuture.get()) {
+      thread_.join();
+      active_.store(nullptr, std::memory_order_release);
       throw std::runtime_error("마우스 휠 입력 감시를 시작하지 못했습니다");
     }
   }
 
   ~CursorWheelGuard() {
-    if (hook_) UnhookWindowsHookEx(hook_);
-    active_ = nullptr;
+    active_.store(nullptr, std::memory_order_release);
+    if (threadId_) PostThreadMessageW(threadId_, WM_QUIT, 0, 0);
+    if (thread_.joinable()) thread_.join();
+  }
+
+  void setForegroundGamePid(DWORD pid) {
+    foregroundGamePid_.store(pid, std::memory_order_release);
+  }
+
+  int takeWheelSteps() {
+    return std::clamp(
+      pendingWheelSteps_.exchange(0, std::memory_order_acq_rel),
+      -29,
+      29
+    );
   }
 
 private:
@@ -371,31 +410,43 @@ private:
     WPARAM message,
     LPARAM parameter
   ) {
-    if (code != HC_ACTION || !active_ || message != WM_MOUSEWHEEL) {
+    auto* guard = active_.load(std::memory_order_acquire);
+    if (code != HC_ACTION || !guard || message != WM_MOUSEWHEEL) {
       return CallNextHookEx(nullptr, code, message, parameter);
     }
     const auto* event = reinterpret_cast<const MSLLHOOKSTRUCT*>(parameter);
     if (!event || (event->flags & LLMHF_INJECTED) != 0) {
       return CallNextHookEx(nullptr, code, message, parameter);
     }
-    const bool modifierPressed = active_->modifier_ == L"control"
+    const bool modifierPressed = guard->modifier_ == L"control"
       ? (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0
       : (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+    DWORD foregroundPid = 0;
+    const HWND foreground = GetForegroundWindow();
+    if (foreground) GetWindowThreadProcessId(foreground, &foregroundPid);
     if (
       !modifierPressed
-      || !isTargetGameForeground(active_->gamePath_)
+      || foregroundPid == 0
+      || foregroundPid != guard->foregroundGamePid_.load(
+        std::memory_order_acquire
+      )
     ) {
       return CallNextHookEx(nullptr, code, message, parameter);
     }
     const int wheelDelta = static_cast<SHORT>(HIWORD(event->mouseData));
-    active_->cursorScaleGuard_.adjustScale(wheelDelta);
+    guard->pendingWheelSteps_.fetch_add(
+      wheelDelta > 0 ? 1 : -1,
+      std::memory_order_acq_rel
+    );
     return 1;
   }
 
-  inline static CursorWheelGuard* active_ = nullptr;
-  fs::path gamePath_;
+  inline static std::atomic<CursorWheelGuard*> active_{nullptr};
   std::wstring modifier_;
-  CursorScaleGuard& cursorScaleGuard_;
+  std::atomic<DWORD> foregroundGamePid_{0};
+  std::atomic<int> pendingWheelSteps_{0};
+  std::thread thread_;
+  DWORD threadId_ = 0;
   HHOOK hook_ = nullptr;
 };
 
@@ -579,12 +630,17 @@ int wmain(int count, wchar_t** values) {
     std::unique_ptr<CursorWheelGuard> cursorWheelGuard;
     if (options.cursorWheelModifier != L"disabled") {
       cursorWheelGuard = std::make_unique<CursorWheelGuard>(
-        options.gamePath,
-        options.cursorWheelModifier,
-        cursorScaleGuard
+        options.cursorWheelModifier
       );
     }
     cursorScaleGuard.update();
+    if (cursorWheelGuard) {
+      cursorWheelGuard->setForegroundGamePid(
+        cursorScaleGuard.gameForeground()
+          ? cursorScaleGuard.foregroundPid()
+          : 0
+      );
+    }
     writeStatus(
       options.statusPath,
       true,
@@ -604,7 +660,19 @@ int wmain(int count, wchar_t** values) {
         DispatchMessageW(&message);
       }
       if (message.message == WM_QUIT) break;
-      if (cursorScaleGuard.update()) {
+      const int wheelSteps = cursorWheelGuard
+        ? cursorWheelGuard->takeWheelSteps()
+        : 0;
+      if (wheelSteps != 0) cursorScaleGuard.adjustScale(wheelSteps);
+      const bool cursorStateChanged = cursorScaleGuard.update();
+      if (cursorWheelGuard) {
+        cursorWheelGuard->setForegroundGamePid(
+          cursorScaleGuard.gameForeground()
+            ? cursorScaleGuard.foregroundPid()
+            : 0
+        );
+      }
+      if (cursorStateChanged) {
         writeStatus(
           options.statusPath,
           true,
