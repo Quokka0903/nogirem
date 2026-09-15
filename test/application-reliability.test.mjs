@@ -46,6 +46,21 @@ const packageInfo = JSON.parse(await readFile(
   new URL("../package.json", import.meta.url),
   "utf8",
 ))
+const developmentLauncher = await readFile(
+  new URL("../scripts/run-app-dev.mjs", import.meta.url),
+  "utf8",
+)
+
+test("개발 앱은 빈 전용 포트를 찾아 동일 서버 주소만 사용한다", () => {
+  assert.equal(packageInfo.scripts["app:dev"], "node scripts/run-app-dev.mjs")
+  assert.match(developmentLauncher, /server\.listen\(0, host/)
+  assert.match(developmentLauncher, /"--strictPort"/)
+  assert.match(developmentLauncher, /document\.includes\("마비노기 렘 부스터"\)/)
+  assert.match(developmentLauncher, /`--dev-server-url=\$\{serverUrl\}`/)
+  assert.match(electronMain, /function resolveDevelopmentServerUrl\(\)/)
+  assert.match(electronMain, /developmentPageUrl\("dxvk-manager\.html"\)/)
+  assert.doesNotMatch(electronMain, /localhost:5173/)
+})
 
 test("업데이트 다운로드가 45초간 멈추면 입력 차단 상태를 해제한다", () => {
   assert.match(electronMain, /const applicationUpdateStallTimeoutMs = 45_000/)

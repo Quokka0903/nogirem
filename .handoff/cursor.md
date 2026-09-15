@@ -1,11 +1,12 @@
 # Cursor AI Handoff
 
-Last Updated: 2026-09-16 03:17
+Last Updated: 2026-09-16 03:29
 
 ## Current Objective
 0.3.14 블랙박스 재생 개선과 마비노기 포커스 전용 마우스 커서 크기 기능을 검증한다.
 
 ## Current Status
+- 개발 PC에서 포트 5173을 서로 다른 Node 프로세스가 `127.0.0.1`과 `0.0.0.0`으로 동시에 점유한 것을 확인했다. 기존 `app:dev`는 Nogirem Vite가 충돌을 피해 다음 포트로 이동해도 `wait-on tcp:5173`이 타 프로젝트 서버를 성공으로 판정하고 Electron의 모든 개발 창도 5173을 하드코딩해 다른 앱을 표시했다. `scripts/run-app-dev.mjs`가 매 실행 시 빈 루프백 포트를 배정하고 Nogirem 문서 응답을 검증한 뒤 `--dev-server-url`로 전달하도록 교체했다. 관리자 재실행에도 인자가 보존되며 주 창과 Vulkan·가이드·블랙박스 보조 창이 모두 같은 동적 주소를 사용한다.
 - Vulkan 관리 창은 캐시된 v3.1을 먼저 선택한 뒤 온라인에서 v3.1.1을 확인해도 이전 자동 선택을 보존해 최신 버전이 기본 선택되지 않았다. 사용자 변경 여부를 별도로 추적해 직접 선택하기 전에는 최신 호환 권장 버전을 선택하도록 수정했다. 창 표시 전 `opacity: 0`과 300ms 페이드인이 검은 배경 노출을 만들던 경로도 제거해 `ready-to-show`에서 완성 화면을 즉시 표시한다.
 - 커서 설정은 200%로 저장되고 helper도 실행됐지만 게임 포커스를 감지하지 못하면 `cursorActive`가 false로 유지됐다. 보호된 Client.exe의 전체 경로 조회가 실패하는 환경에서도 `CreateToolhelp32Snapshot`의 프로세스 파일명으로 마비노기를 재확인하도록 보강했다. 전체 경로를 읽을 수 있으면 기존 정확 경로 비교를 우선하며, 포그라운드 창·PID 캐시로 반복 경로 조회는 하지 않는다. 최종 x64 helper는 305,664바이트·SHA-256 `9B1E083A…F9C82B3`이다. 전체 Node 테스트 168개, DXVK·입력 targeted 테스트 14개와 프로덕션 빌드가 통과했다.
 - 최초 커서 구현의 `CopyImage`·`SetSystemCursor` 방식은 Windows 접근성 설정과 달라 마비노기 커서에 반영되지 않았다. 실제 Windows 설정이 사용하는 `HKCU\Control Panel\Cursors\CursorBaseSize` DWORD를 확인했고 현재 PC에서 `32→40→32` 임시 변경·`SPI_SETCURSORS` 반영·원상복원을 검증했다. helper는 시작 시 사용자의 원래 값을 보존하고 마비노기 포커스 중 선택 비율을 적용하며, 포커스 이탈·설정 해제·정상 종료 시 정확한 원래 값을 복원한다. 활성 상태와 원래 값은 status에 기록해 강제 종료 뒤 다음 앱 시작에서도 복구한다.
@@ -363,6 +364,7 @@ Last Updated: 2026-09-16 03:17
 - 프로덕션 빌드, Electron 구문 검사, 전체 테스트 20개와 편집기 린트가 통과했다.
 
 ## Architecture / Important Decisions
+- 개발 렌더러 주소를 고정 포트로 가정하지 않는다. 개발 실행기가 빈 `127.0.0.1` 포트를 선택하고 Nogirem HTML 표식을 확인한 주소만 `--dev-server-url`로 넘기며, Electron은 허용된 루프백 HTTP 주소만 사용한다.
 - DXVK 버전 셀렉터는 사용자가 직접 변경했을 때만 선택을 유지한다. 초기 캐시 상태에서 온라인 조회로 최신 버전이 바뀌면 `recommended`의 최신 호환 버전을 자동 선택한다.
 - 게임 커서 크기는 Windows 접근성 설정과 동일한 `CursorBaseSize` DWORD를 사용한다. helper 시작 시 원래 값을 읽고 변경·복원 때마다 `SPI_SETCURSORS`로 반영한다. 활성 상태의 status에는 `originalCursorBaseSize`를 기록하며 다음 앱은 `--restore-cursor-base-size`를 전달한 restore-only 실행으로 강제 종료 잔여값을 복구한다. 게임 프로세스 DLL 주입이나 API hook은 사용하지 않는다.
 - Alt+Enter 방지는 블랙박스·터보 키와 무관한 번들 native helper가 소유한다. hook thread는 `GetMessageW`와 50ms 상태 타이머로 대기해 일반 키 입력에 polling 지연을 추가하지 않으며, 차단 조건이 아닌 모든 이벤트는 즉시 `CallNextHookEx`로 전달한다.
@@ -743,6 +745,7 @@ Last Updated: 2026-09-16 03:17
 - `vite.config.mjs`: Svelte 렌더러 빌드 설정
 
 ## Recent Changes
+- `npm run app:dev`를 동적 전용 포트 실행기로 교체하고 Electron 개발 URL의 5173 하드코딩을 제거했다. 다른 Vite 프로젝트가 실행 중이어도 Nogirem 서버 응답을 확인한 뒤 앱을 시작한다.
 - Vulkan 관리 창의 최신 호환 버전 자동 선택을 고치고 300ms 검은 페이드인을 제거했다. 커서 helper는 전체 경로 조회 실패 시 Win32 프로세스 스냅샷의 파일명으로 게임을 감지한다.
 - 게임에 반영되지 않는 `SetSystemCursor` 교체를 Windows 접근성 `CursorBaseSize` 변경으로 대체하고 원래 값의 강제 종료 복구와 포그라운드 PID 경로 캐시를 추가했다.
 - 블랙박스 검정 화면 진단 건에 분석 결과와 0.3.14 개선 내용, 재발 시 필요한 진단 ZIP·청크 요청을 REPORT 답변으로 추가했다.
@@ -1575,4 +1578,4 @@ Last Updated: 2026-09-16 03:17
 - 정확 재인코딩의 첫 PCM sample 내부에서 요청 시점 전 frame을 제거해 AAC frame 경계의 최대 약 21ms 선행도 없앴다. 실제 비정렬 시작점 추출은 통과했지만 실행 중 recorder 잠금 때문에 배포용 local bin 갱신은 남아 있다.
 
 ## Next Recommended Step
-개발 앱을 완전히 재시작해 새 helper를 로드하고 마비노기 포커스에서 커서 적용을 재확인한 뒤, Vulkan 관리 창의 즉시 표시와 v3.1.1 기본 선택도 확인한다.
+기존 개발 앱과 서버를 모두 종료하고 새 `npm run app:dev`가 출력하는 동적 URL로 재실행한 뒤, Vulkan 관리 창의 즉시 표시·최신 선택과 마비노기 포커스 커서 적용을 다시 확인한다.

@@ -129,6 +129,7 @@ const bugReportFormUrl = "https://docs.google.com/forms/d/e/1FAIpQLSfx6-QVqsxgUD
 const startupTrayTaskName = "Mabinogi Rem Booster Startup"
 const startupTrayRegistryPath = "HKCU:\\Software\\Nogirem"
 const startupTrayLaunch = process.argv.includes("--startup-tray")
+const developmentServerUrl = resolveDevelopmentServerUrl()
 const applicationUpdateStallTimeoutMs = 45_000
 const primaryRendererUnresponsiveTimeoutMs = 5_000
 const primaryWindowRevealTimeoutMs = 8_000
@@ -816,6 +817,27 @@ async function installDownloadedApplicationUpdate() {
 function argumentValue(name) {
   return process.argv.find(argument => argument.startsWith(`--${name}=`))
     ?.slice(name.length + 3)
+}
+
+function resolveDevelopmentServerUrl() {
+  if (!process.argv.includes("--dev")) return null
+  const value = argumentValue("dev-server-url")
+  if (!value) {
+    throw new Error("개발 서버 주소가 없습니다. npm run app:dev로 실행하세요")
+  }
+  const url = new URL(value)
+  if (
+    url.protocol !== "http:"
+    || !["127.0.0.1", "localhost"].includes(url.hostname)
+    || !url.port
+  ) {
+    throw new Error("허용되지 않은 개발 서버 주소입니다")
+  }
+  return url.origin
+}
+
+function developmentPageUrl(pathname = "") {
+  return new URL(pathname, `${developmentServerUrl}/`).href
 }
 
 function findConflictingPrograms(processNames = []) {
@@ -6290,7 +6312,7 @@ function openDxvkManager() {
   })
   const builtManagerPath = join(root, "dist", "dxvk-manager.html")
   const loading = process.argv.includes("--dev")
-    ? window.loadURL("http://localhost:5173/dxvk-manager.html")
+    ? window.loadURL(developmentPageUrl("dxvk-manager.html"))
     : window.loadFile(existsSync(builtManagerPath)
       ? builtManagerPath
       : join(root, "dxvk-manager.html"))
@@ -6416,7 +6438,7 @@ function openBlackboxManager() {
   })
   const builtManagerPath = join(root, "dist", "blackbox-manager.html")
   const loading = process.argv.includes("--dev")
-    ? window.loadURL("http://localhost:5173/blackbox-manager.html")
+    ? window.loadURL(developmentPageUrl("blackbox-manager.html"))
     : window.loadFile(existsSync(builtManagerPath)
       ? builtManagerPath
       : join(root, "blackbox-manager.html"))
@@ -6509,7 +6531,7 @@ function openDxvkGuide() {
   })
   const builtGuidePath = join(root, "dist", "dxvk-guide.html")
   const loading = process.argv.includes("--dev")
-    ? window.loadURL("http://localhost:5173/dxvk-guide.html")
+    ? window.loadURL(developmentPageUrl("dxvk-guide.html"))
     : window.loadFile(existsSync(builtGuidePath)
       ? builtGuidePath
       : join(root, "dxvk-guide.html"))
@@ -6599,7 +6621,7 @@ function openCharacterSimplificationGuide() {
   })
   const builtGuidePath = join(root, "dist", "character-guide.html")
   const loading = process.argv.includes("--dev")
-    ? window.loadURL("http://localhost:5173/character-guide.html")
+    ? window.loadURL(developmentPageUrl("character-guide.html"))
     : window.loadFile(existsSync(builtGuidePath)
       ? builtGuidePath
       : join(root, "character-guide.html"))
@@ -6691,7 +6713,7 @@ function openBlackboxEditor() {
   })
   const builtEditorPath = join(root, "dist", "blackbox-editor.html")
   const loading = process.argv.includes("--dev")
-    ? window.loadURL("http://localhost:5173/blackbox-editor.html")
+    ? window.loadURL(developmentPageUrl("blackbox-editor.html"))
     : window.loadFile(existsSync(builtEditorPath)
       ? builtEditorPath
       : join(root, "blackbox-editor.html"))
@@ -7103,7 +7125,7 @@ function createWindow() {
   })
 
   const loading = process.argv.includes("--dev")
-    ? window.loadURL("http://localhost:5173")
+    ? window.loadURL(developmentPageUrl())
     : window.loadFile(join(root, "dist", "index.html"))
   void loading
     .then(() => {

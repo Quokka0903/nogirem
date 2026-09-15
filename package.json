@@ -11,7 +11,7 @@
   "main": "electron/bootstrap.mjs",
   "scripts": {
     "app": "electron .",
-    "app:dev": "concurrently --kill-others-on-fail \"vite\" \"wait-on tcp:5173 && electron . --dev\"",
+    "app:dev": "node scripts/run-app-dev.mjs",
     "app:build": "vite build",
     "native:input-guard": "node scripts/build-input-guard-helper.mjs",
     "native:radeon": "node scripts/build-radeon-helper.mjs",
