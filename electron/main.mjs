@@ -2154,7 +2154,7 @@ function observeMabinogiExecutablePath(value) {
   void refreshPathDependentStatuses()
   if (inputGuardProcess && inputGuardProcess.exitCode === null) {
     void restartInputGuardForGamePath().catch(error => {
-      console.error("마비노기 경로 변경 후 Alt+Enter 방지 재시작 실패", error)
+      console.error("마비노기 경로 변경 후 입력 기능 재시작 실패", error)
     })
   }
   return true
@@ -2652,33 +2652,57 @@ async function waitForInputGuardStatus(predicate, timeoutMs = 3000) {
   return null
 }
 
+const inputGuardCursorScalePercentages = new Set([75, 100, 125, 150, 200])
+
+function normalizeInputGuardSetting(value) {
+  const cursorScalePercent = Number(value?.cursorScalePercent)
+  return {
+    enabled: Boolean(value?.enabled),
+    cursorScalePercent: inputGuardCursorScalePercentages.has(cursorScalePercent)
+      ? cursorScalePercent
+      : 100,
+  }
+}
+
+function inputGuardHelperRequired(setting) {
+  return setting.enabled || setting.cursorScalePercent !== 100
+}
+
 async function getInputGuardSetting() {
   const paths = getInputGuardPaths()
   const [settings, status] = await Promise.all([
     readJson(paths.settingsPath),
     readRuntimeStatusJson(paths.statusPath),
   ])
-  const enabled = Boolean(settings?.enabled)
+  const setting = normalizeInputGuardSetting(settings)
   const running = Boolean(
     inputGuardProcess
     && inputGuardProcess.exitCode === null
     && status?.running,
   )
   return {
-    enabled,
+    ...setting,
     running,
+    cursorActive: Boolean(status?.cursorActive),
     gameOnly: true,
     reason: status?.error
-      ?? (enabled && !running ? "Alt+Enter 방지 프로세스가 실행 중이 아닙니다" : null),
+      ?? (
+        inputGuardHelperRequired(setting) && !running
+          ? "마비노기 입력 기능 helper가 실행 중이 아닙니다"
+          : null
+      ),
   }
 }
 
-async function launchInputGuardHelper() {
+async function launchInputGuardHelper(settingValue) {
   if (inputGuardProcess && inputGuardProcess.exitCode === null) {
     return getInputGuardSetting()
   }
+  const setting = normalizeInputGuardSetting(
+    settingValue ?? await readJson(getInputGuardPaths().settingsPath),
+  )
   if (!existsSync(inputGuardHelperPath)) {
-    throw new Error("Alt+Enter 방지 helper를 찾지 못했습니다")
+    throw new Error("마비노기 입력 기능 helper를 찾지 못했습니다")
   }
   const gamePath = await resolveMabinogiExecutablePath()
   if (!isMabinogiExecutablePath(gamePath)) {
@@ -2695,6 +2719,8 @@ async function launchInputGuardHelper() {
     `--control-path=${paths.controlPath}`,
     `--game-path=${gamePath}`,
     `--parent-pid=${process.pid}`,
+    `--alt-enter-enabled=${setting.enabled ? 1 : 0}`,
+    `--cursor-scale-percent=${setting.cursorScalePercent}`,
   ], {
     windowsHide: true,
     stdio: "ignore",
@@ -2717,7 +2743,7 @@ async function launchInputGuardHelper() {
     throw new Error(
       status?.error
       ?? spawnError?.message
-      ?? "Alt+Enter 방지 실행을 확인하지 못했습니다",
+      ?? "마비노기 입력 기능 실행을 확인하지 못했습니다",
     )
   }
   return getInputGuardSetting()
@@ -2740,46 +2766,72 @@ async function stopInputGuardHelper() {
     child.kill()
     exited = await waitForTurboKeyProcessExit(child, 500)
   }
-  if (!exited) throw new Error("Alt+Enter 방지 프로세스를 종료하지 못했습니다")
+  if (!exited) throw new Error("마비노기 입력 기능 helper를 종료하지 못했습니다")
   if (inputGuardProcess === child) inputGuardProcess = null
   return getInputGuardSetting()
 }
 
-async function setInputGuardSetting(enabled) {
+async function setInputGuardSetting(value) {
   const paths = getInputGuardPaths()
-  if (enabled) {
-    await stopInputGuardHelper()
-    await launchInputGuardHelper()
-    try {
-      await writeJsonAtomic(paths.settingsPath, {
-        enabled: true,
-        updatedAt: Date.now(),
-      })
-    } catch (error) {
-      await stopInputGuardHelper().catch(() => {})
-      throw error
-    }
-  } else {
-    await stopInputGuardHelper()
+  const previous = normalizeInputGuardSetting(await readJson(paths.settingsPath))
+  const next = normalizeInputGuardSetting(
+    typeof value === "boolean"
+      ? { ...previous, enabled: value }
+      : { ...previous, ...value },
+  )
+  await stopInputGuardHelper()
+  try {
     await writeJsonAtomic(paths.settingsPath, {
-      enabled: false,
+      ...next,
       updatedAt: Date.now(),
     })
+    if (inputGuardHelperRequired(next)) {
+      await launchInputGuardHelper(next)
+    }
+  } catch (error) {
+    await stopInputGuardHelper().catch(() => {})
+    await writeJsonAtomic(paths.settingsPath, {
+      ...previous,
+      updatedAt: Date.now(),
+    }).catch(() => {})
+    if (inputGuardHelperRequired(previous)) {
+      await launchInputGuardHelper(previous).catch(() => {})
+    }
+    throw error
   }
   return getInputGuardSetting()
 }
 
 async function ensureInputGuardStarted() {
-  const settings = await readJson(getInputGuardPaths().settingsPath)
-  if (!settings?.enabled) return
-  await launchInputGuardHelper()
+  const setting = normalizeInputGuardSetting(
+    await readJson(getInputGuardPaths().settingsPath),
+  )
+  if (existsSync(inputGuardHelperPath)) {
+    let restored = false
+    for (let attempt = 0; attempt < 5 && !restored; attempt += 1) {
+      try {
+        await execFileAsync(inputGuardHelperPath, ["--restore-only=1"], {
+          windowsHide: true,
+          timeout: 3000,
+        })
+        restored = true
+      } catch (error) {
+        if (Number(error?.code) !== 2 || attempt === 4) throw error
+        await delay(100)
+      }
+    }
+  }
+  if (!inputGuardHelperRequired(setting)) return
+  await launchInputGuardHelper(setting)
 }
 
 async function restartInputGuardForGamePath() {
-  const settings = await readJson(getInputGuardPaths().settingsPath)
-  if (!settings?.enabled) return
+  const setting = normalizeInputGuardSetting(
+    await readJson(getInputGuardPaths().settingsPath),
+  )
+  if (!inputGuardHelperRequired(setting)) return
   await stopInputGuardHelper()
-  await launchInputGuardHelper()
+  await launchInputGuardHelper(setting)
 }
 
 async function getBlackboxSetting({ waitForStorageSummary = true } = {}) {
@@ -5600,14 +5652,28 @@ function registerIpc() {
     }
     return getInputGuardSetting()
   })
-  ipcMain.handle("application:set-input-guard-setting", (event, enabled) => {
+  ipcMain.handle("application:set-input-guard-setting", (event, setting) => {
     if (BrowserWindow.fromWebContents(event.sender) !== primaryWindow) {
-      throw new Error("허용되지 않은 Alt+Enter 방지 설정 변경 요청입니다")
+      throw new Error("허용되지 않은 마비노기 입력 기능 설정 변경 요청입니다")
     }
-    if (typeof enabled !== "boolean") {
-      throw new Error("Alt+Enter 방지 설정 값이 올바르지 않습니다")
+    if (
+      typeof setting !== "boolean"
+      && (
+        !setting
+        || typeof setting !== "object"
+        || (
+          "enabled" in setting
+          && typeof setting.enabled !== "boolean"
+        )
+        || (
+          "cursorScalePercent" in setting
+          && !inputGuardCursorScalePercentages.has(Number(setting.cursorScalePercent))
+        )
+      )
+    ) {
+      throw new Error("마비노기 입력 기능 설정 값이 올바르지 않습니다")
     }
-    return setInputGuardSetting(enabled)
+    return setInputGuardSetting(setting)
   })
   ipcMain.handle("application:get-blackbox-setting", event => {
     if (BrowserWindow.fromWebContents(event.sender) !== primaryWindow) {
@@ -7072,9 +7138,9 @@ async function startApplication() {
     })
   void mabinogiPathInitialization
     .then(() => ensureInputGuardStarted())
-    .catch(error => console.error("Alt+Enter 방지 자동 실행 실패", error))
+    .catch(error => console.error("마비노기 입력 기능 자동 실행 실패", error))
     .then(() => {
-      writeStartupLog("Alt+Enter 방지 초기화 처리 종료")
+      writeStartupLog("마비노기 입력 기능 초기화 처리 종료")
     })
   void (async () => {
     await mabinogiPathInitialization

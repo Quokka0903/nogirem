@@ -5,6 +5,7 @@
 #include <cwctype>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -19,6 +20,9 @@ struct Options {
   fs::path controlPath;
   fs::path gamePath;
   DWORD parentPid = 0;
+  bool altEnterEnabled = false;
+  int cursorScalePercent = 100;
+  bool restoreOnly = false;
 };
 
 Options parseOptions(int count, wchar_t** values) {
@@ -35,7 +39,26 @@ Options parseOptions(int count, wchar_t** values) {
     else if (name == L"parent-pid") {
       options.parentPid = static_cast<DWORD>(std::stoul(value));
     }
+    else if (name == L"alt-enter-enabled") {
+      options.altEnterEnabled = value == L"1";
+    }
+    else if (name == L"cursor-scale-percent") {
+      options.cursorScalePercent = std::stoi(value);
+    }
+    else if (name == L"restore-only") {
+      options.restoreOnly = value == L"1";
+    }
   }
+  const bool validCursorScale =
+    options.cursorScalePercent == 75
+    || options.cursorScalePercent == 100
+    || options.cursorScalePercent == 125
+    || options.cursorScalePercent == 150
+    || options.cursorScalePercent == 200;
+  if (!validCursorScale) {
+    throw std::runtime_error("마우스 커서 크기 설정이 올바르지 않습니다");
+  }
+  if (options.restoreOnly) return options;
   if (
     options.statusPath.empty()
     || options.controlPath.empty()
@@ -87,6 +110,106 @@ bool processRunning(HANDLE process) {
   return process && WaitForSingleObject(process, 0) == WAIT_TIMEOUT;
 }
 
+void restoreSystemCursors() {
+  if (!SystemParametersInfoW(
+    SPI_SETCURSORS,
+    0,
+    nullptr,
+    SPIF_SENDCHANGE
+  )) {
+    throw std::runtime_error("Windows 마우스 커서를 복원하지 못했습니다");
+  }
+}
+
+struct SystemCursorDefinition {
+  LPCWSTR resource;
+  DWORD identifier;
+};
+
+const SystemCursorDefinition systemCursorDefinitions[] = {
+  { IDC_ARROW, OCR_NORMAL },
+  { IDC_IBEAM, OCR_IBEAM },
+  { IDC_WAIT, OCR_WAIT },
+  { IDC_CROSS, OCR_CROSS },
+  { IDC_UPARROW, OCR_UP },
+  { IDC_SIZENWSE, OCR_SIZENWSE },
+  { IDC_SIZENESW, OCR_SIZENESW },
+  { IDC_SIZEWE, OCR_SIZEWE },
+  { IDC_SIZENS, OCR_SIZENS },
+  { IDC_SIZEALL, OCR_SIZEALL },
+  { IDC_NO, OCR_NO },
+  { IDC_HAND, OCR_HAND },
+  { IDC_APPSTARTING, OCR_APPSTARTING },
+};
+
+class CursorScaleGuard {
+public:
+  CursorScaleGuard(fs::path gamePath, int scalePercent)
+    : gamePath_(std::move(gamePath)),
+      scalePercent_(scalePercent) {
+    restoreSystemCursors();
+    baseWidth_ = std::max(1, GetSystemMetrics(SM_CXCURSOR));
+    baseHeight_ = std::max(1, GetSystemMetrics(SM_CYCURSOR));
+  }
+
+  ~CursorScaleGuard() {
+    if (!active_) return;
+    SystemParametersInfoW(SPI_SETCURSORS, 0, nullptr, SPIF_SENDCHANGE);
+  }
+
+  bool update() {
+    const bool shouldBeActive =
+      scalePercent_ != 100 && isTargetGameForeground(gamePath_);
+    if (shouldBeActive == active_) return false;
+    if (shouldBeActive) apply();
+    else restore();
+    return true;
+  }
+
+  void restore() {
+    if (!active_) return;
+    restoreSystemCursors();
+    active_ = false;
+  }
+
+  bool active() const {
+    return active_;
+  }
+
+private:
+  void apply() {
+    restoreSystemCursors();
+    const int width = std::max(1, MulDiv(baseWidth_, scalePercent_, 100));
+    const int height = std::max(1, MulDiv(baseHeight_, scalePercent_, 100));
+    for (const auto& definition : systemCursorDefinitions) {
+      const HCURSOR source = LoadCursorW(nullptr, definition.resource);
+      const HCURSOR scaled = static_cast<HCURSOR>(CopyImage(
+        source,
+        IMAGE_CURSOR,
+        width,
+        height,
+        LR_COPYFROMRESOURCE
+      ));
+      if (!scaled) {
+        restoreSystemCursors();
+        throw std::runtime_error("Windows 마우스 커서 크기를 변경하지 못했습니다");
+      }
+      if (!SetSystemCursor(scaled, definition.identifier)) {
+        DestroyCursor(scaled);
+        restoreSystemCursors();
+        throw std::runtime_error("Windows 마우스 커서 크기를 적용하지 못했습니다");
+      }
+    }
+    active_ = true;
+  }
+
+  fs::path gamePath_;
+  int scalePercent_ = 100;
+  int baseWidth_ = 32;
+  int baseHeight_ = 32;
+  bool active_ = false;
+};
+
 bool stopRequested(const fs::path& controlPath) {
   std::ifstream input(controlPath);
   if (!input) return false;
@@ -104,6 +227,8 @@ void writeStatus(
   const fs::path& statusPath,
   bool running,
   DWORD pid,
+  bool cursorActive = false,
+  int cursorScalePercent = 100,
   const std::string& error = {}
 ) {
   fs::create_directories(statusPath.parent_path());
@@ -113,9 +238,11 @@ void writeStatus(
   output
     << "{\"running\":" << (running ? "true" : "false")
     << ",\"pid\":" << pid
+    << ",\"cursorActive\":" << (cursorActive ? "true" : "false")
+    << ",\"cursorScalePercent\":" << cursorScalePercent
     << ",\"error\":";
   if (error.empty()) output << "null";
-  else output << "\"입력 방지 helper 오류\"";
+  else output << "\"입력 기능 helper 오류\"";
   output
     << ",\"updatedAt\":"
     << std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -220,12 +347,31 @@ int wmain(int count, wchar_t** values) {
   Options options;
   try {
     options = parseOptions(count, values);
+    if (options.restoreOnly) {
+      restoreSystemCursors();
+      ReleaseMutex(mutex);
+      CloseHandle(mutex);
+      return 0;
+    }
     parent = OpenProcess(SYNCHRONIZE, FALSE, options.parentPid);
     if (!parent) throw std::runtime_error("부모 프로세스를 확인하지 못했습니다");
     std::error_code error;
     fs::remove(options.controlPath, error);
-    AltEnterGuard guard(options.gamePath);
-    writeStatus(options.statusPath, true, GetCurrentProcessId());
+    std::unique_ptr<AltEnterGuard> altEnterGuard;
+    if (options.altEnterEnabled) {
+      altEnterGuard = std::make_unique<AltEnterGuard>(options.gamePath);
+    }
+    CursorScaleGuard cursorScaleGuard(
+      options.gamePath,
+      options.cursorScalePercent
+    );
+    writeStatus(
+      options.statusPath,
+      true,
+      GetCurrentProcessId(),
+      false,
+      options.cursorScalePercent
+    );
 
     const UINT_PTR healthTimer = SetTimer(nullptr, 0, 50, nullptr);
     if (!healthTimer) {
@@ -237,9 +383,25 @@ int wmain(int count, wchar_t** values) {
       if (messageResult <= 0) break;
       TranslateMessage(&message);
       DispatchMessageW(&message);
+      if (cursorScaleGuard.update()) {
+        writeStatus(
+          options.statusPath,
+          true,
+          GetCurrentProcessId(),
+          cursorScaleGuard.active(),
+          options.cursorScalePercent
+        );
+      }
     }
     KillTimer(nullptr, healthTimer);
-    writeStatus(options.statusPath, false, GetCurrentProcessId());
+    cursorScaleGuard.restore();
+    writeStatus(
+      options.statusPath,
+      false,
+      GetCurrentProcessId(),
+      false,
+      options.cursorScalePercent
+    );
     CloseHandle(parent);
     ReleaseMutex(mutex);
     CloseHandle(mutex);
@@ -250,6 +412,8 @@ int wmain(int count, wchar_t** values) {
         options.statusPath,
         false,
         GetCurrentProcessId(),
+        false,
+        options.cursorScalePercent,
         error.what()
       );
     }

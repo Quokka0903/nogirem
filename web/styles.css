@@ -1458,6 +1458,25 @@ button.direct-donation-card:hover {
   background: transparent;
 }
 
+.developer-tool-select {
+  width: 104px;
+  height: 31px;
+  padding: 0 9px;
+  border: 1px solid #222;
+  border-radius: 3px;
+  color: #111;
+  background: #fff;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.developer-tool-select:disabled {
+  border-color: #ccc;
+  color: #999;
+  cursor: default;
+}
+
 .developer-tool-actions {
   display: flex;
   gap: 6px;
@@ -1962,6 +1981,18 @@ button.direct-donation-card:hover {
 }
 
 .creator-view.paused .developer-tools button:disabled {
+  border-color: #555;
+  color: #777;
+  background: transparent;
+}
+
+.creator-view.paused .developer-tool-select {
+  border-color: #eee;
+  color: #111;
+  background: #eee;
+}
+
+.creator-view.paused .developer-tool-select:disabled {
   border-color: #555;
   color: #777;
   background: transparent;

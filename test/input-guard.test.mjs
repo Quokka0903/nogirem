@@ -25,7 +25,24 @@ test("Alt Enter 방지는 마비노기 포그라운드의 Enter 입력만 소비
   assert.match(source, /WaitForSingleObject\(process, 0\) == WAIT_TIMEOUT/)
 })
 
-test("Alt Enter 방지 설정은 앱 수명주기와 고급 기능 UI에 연결된다", async () => {
+test("게임 포커스 중에만 시스템 커서를 확대하고 종료 시 복원한다", async () => {
+  const source = await readFile(
+    new URL("native/input-guard-helper/main.cpp", root),
+    "utf8",
+  )
+
+  assert.match(source, /class CursorScaleGuard/)
+  assert.match(
+    source,
+    /scalePercent_ != 100 && isTargetGameForeground\(gamePath_\)/,
+  )
+  assert.match(source, /CopyImage\([\s\S]*IMAGE_CURSOR/)
+  assert.match(source, /SetSystemCursor\(scaled, definition\.identifier\)/)
+  assert.match(source, /SystemParametersInfoW\([\s\S]*SPI_SETCURSORS/)
+  assert.match(source, /if \(options\.restoreOnly\)[\s\S]*restoreSystemCursors\(\)/)
+})
+
+test("마비노기 입력 기능 설정은 앱 수명주기와 고급 기능 UI에 연결된다", async () => {
   const [main, preload, app, packageInfo, packageScript] = await Promise.all([
     readFile(new URL("electron/main.mjs", root), "utf8"),
     readFile(new URL("electron/preload.cjs", root), "utf8"),
@@ -34,11 +51,15 @@ test("Alt Enter 방지 설정은 앱 수명주기와 고급 기능 UI에 연결�
     readFile(new URL("scripts/package-win.mjs", root), "utf8"),
   ])
 
-  assert.match(main, /async function launchInputGuardHelper\(\)/)
+  assert.match(main, /async function launchInputGuardHelper\([^)]*\)/)
   assert.match(main, /async function stopInputGuardHelper\(\)/)
   assert.match(main, /async function ensureInputGuardStarted\(\)/)
   assert.match(main, /application:get-input-guard-setting/)
   assert.match(main, /application:set-input-guard-setting/)
+  assert.match(main, /inputGuardCursorScalePercentages = new Set\(\[75, 100, 125, 150, 200\]\)/)
+  assert.match(main, /`--alt-enter-enabled=\$\{setting\.enabled \? 1 : 0\}`/)
+  assert.match(main, /`--cursor-scale-percent=\$\{setting\.cursorScalePercent\}`/)
+  assert.match(main, /\["--restore-only=1"\]/)
   assert.match(main, /ensureInputGuardStarted/)
   assert.match(main, /stopInputGuardHelper\(\)/)
   assert.match(preload, /getInputGuardSetting/)
@@ -47,6 +68,11 @@ test("Alt Enter 방지 설정은 앱 수명주기와 고급 기능 UI에 연결�
     app,
     /Alt\+Enter 방지[\s\S]*마비노기 플레이 중 전체 화면 전환 단축키 Alt\+Enter 입력을 차단합니다/,
   )
+  assert.match(
+    app,
+    /게임 마우스 커서 크기[\s\S]*마비노기 플레이 중에만 Windows 마우스 커서 크기를 변경합니다/,
+  )
+  assert.match(app, /mouseCursorScaleOptions = \[75, 100, 125, 150, 200\]/)
   assert.equal(
     packageInfo.scripts["native:input-guard"],
     "node scripts/build-input-guard-helper.mjs",

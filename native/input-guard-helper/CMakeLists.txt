@@ -12,6 +12,7 @@ target_compile_definitions(
     _UNICODE
     WIN32_LEAN_AND_MEAN
     NOMINMAX
+    OEMRESOURCE
 )
 
 if(MSVC)

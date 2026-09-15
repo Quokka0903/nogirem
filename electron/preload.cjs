@@ -70,8 +70,8 @@ contextBridge.exposeInMainWorld("nogirem", {
     return ipcRenderer.invoke("application:set-turbo-key-setting", setting)
   },
   getInputGuardSetting: () => ipcRenderer.invoke("application:get-input-guard-setting"),
-  setInputGuardSetting: enabled => {
-    return ipcRenderer.invoke("application:set-input-guard-setting", enabled)
+  setInputGuardSetting: setting => {
+    return ipcRenderer.invoke("application:set-input-guard-setting", setting)
   },
   getBlackboxSetting: () => ipcRenderer.invoke("application:get-blackbox-setting"),
   setBlackboxSetting: setting => {
