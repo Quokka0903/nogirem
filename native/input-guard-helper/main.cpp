@@ -23,6 +23,7 @@ struct Options {
   DWORD parentPid = 0;
   bool altEnterEnabled = false;
   int cursorScalePercent = 100;
+  std::wstring cursorWheelModifier = L"disabled";
   bool restoreOnly = false;
   DWORD restoreCursorBaseSize = 0;
 };
@@ -47,6 +48,15 @@ Options parseOptions(int count, wchar_t** values) {
     else if (name == L"cursor-scale-percent") {
       options.cursorScalePercent = std::stoi(value);
     }
+    else if (name == L"cursor-wheel-modifier") {
+      options.cursorWheelModifier = value;
+      std::transform(
+        options.cursorWheelModifier.begin(),
+        options.cursorWheelModifier.end(),
+        options.cursorWheelModifier.begin(),
+        towlower
+      );
+    }
     else if (name == L"restore-only") {
       options.restoreOnly = value == L"1";
     }
@@ -55,13 +65,18 @@ Options parseOptions(int count, wchar_t** values) {
     }
   }
   const bool validCursorScale =
-    options.cursorScalePercent == 75
-    || options.cursorScalePercent == 100
-    || options.cursorScalePercent == 125
-    || options.cursorScalePercent == 150
-    || options.cursorScalePercent == 200;
+    options.cursorScalePercent >= 75
+    && options.cursorScalePercent <= 800
+    && options.cursorScalePercent % 25 == 0;
   if (!validCursorScale) {
     throw std::runtime_error("마우스 커서 크기 설정이 올바르지 않습니다");
+  }
+  if (
+    options.cursorWheelModifier != L"disabled"
+    && options.cursorWheelModifier != L"control"
+    && options.cursorWheelModifier != L"alt"
+  ) {
+    throw std::runtime_error("마우스 휠 조절 설정이 올바르지 않습니다");
   }
   if (options.restoreOnly) return options;
   if (
@@ -158,7 +173,7 @@ DWORD readCursorBaseSize() {
 }
 
 void setCursorBaseSize(DWORD value) {
-  if (value == 0 || value > 512) {
+  if (value == 0 || value > 256) {
     throw std::runtime_error("Windows 마우스 커서 크기 값이 올바르지 않습니다");
   }
   constexpr UINT setCursorBaseSizeAction = 0x2029;
@@ -245,6 +260,12 @@ public:
     const bool gameForeground = foregroundGame_.matches();
     const bool foregroundChanged = foregroundGame_.changed();
     const bool shouldBeActive = scalePercent_ != 100 && gameForeground;
+    if (scaleChanged_) {
+      scaleChanged_ = false;
+      if (shouldBeActive) apply();
+      else if (active_) restore();
+      return true;
+    }
     if (shouldBeActive == active_) return foregroundChanged;
     if (shouldBeActive) apply();
     else restore();
@@ -273,11 +294,29 @@ public:
     return foregroundGame_.processName();
   }
 
+  bool adjustScale(int direction) {
+    if (direction == 0) return false;
+    const int nextScalePercent = std::clamp(
+      scalePercent_ + (direction > 0 ? 25 : -25),
+      75,
+      800
+    );
+    if (nextScalePercent == scalePercent_) return false;
+    scalePercent_ = nextScalePercent;
+    scaleChanged_ = true;
+    return true;
+  }
+
+  int scalePercent() const {
+    return scalePercent_;
+  }
+
 private:
   void apply() {
-    const DWORD scaledBaseSize = static_cast<DWORD>(std::max(
+    const DWORD scaledBaseSize = static_cast<DWORD>(std::clamp(
+      MulDiv(static_cast<int>(originalBaseSize_), scalePercent_, 100),
       1,
-      MulDiv(static_cast<int>(originalBaseSize_), scalePercent_, 100)
+      256
     ));
     try {
       setCursorBaseSize(scaledBaseSize);
@@ -295,6 +334,69 @@ private:
   int scalePercent_ = 100;
   DWORD originalBaseSize_ = 32;
   bool active_ = false;
+  bool scaleChanged_ = false;
+};
+
+class CursorWheelGuard {
+public:
+  CursorWheelGuard(
+    fs::path gamePath,
+    std::wstring modifier,
+    CursorScaleGuard& cursorScaleGuard
+  )
+    : gamePath_(std::move(gamePath)),
+      modifier_(std::move(modifier)),
+      cursorScaleGuard_(cursorScaleGuard) {
+    active_ = this;
+    hook_ = SetWindowsHookExW(
+      WH_MOUSE_LL,
+      mouseHook,
+      GetModuleHandleW(nullptr),
+      0
+    );
+    if (!hook_) {
+      active_ = nullptr;
+      throw std::runtime_error("마우스 휠 입력 감시를 시작하지 못했습니다");
+    }
+  }
+
+  ~CursorWheelGuard() {
+    if (hook_) UnhookWindowsHookEx(hook_);
+    active_ = nullptr;
+  }
+
+private:
+  static LRESULT CALLBACK mouseHook(
+    int code,
+    WPARAM message,
+    LPARAM parameter
+  ) {
+    if (code != HC_ACTION || !active_ || message != WM_MOUSEWHEEL) {
+      return CallNextHookEx(nullptr, code, message, parameter);
+    }
+    const auto* event = reinterpret_cast<const MSLLHOOKSTRUCT*>(parameter);
+    if (!event || (event->flags & LLMHF_INJECTED) != 0) {
+      return CallNextHookEx(nullptr, code, message, parameter);
+    }
+    const bool modifierPressed = active_->modifier_ == L"control"
+      ? (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0
+      : (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+    if (
+      !modifierPressed
+      || !isTargetGameForeground(active_->gamePath_)
+    ) {
+      return CallNextHookEx(nullptr, code, message, parameter);
+    }
+    const int wheelDelta = static_cast<SHORT>(HIWORD(event->mouseData));
+    active_->cursorScaleGuard_.adjustScale(wheelDelta);
+    return 1;
+  }
+
+  inline static CursorWheelGuard* active_ = nullptr;
+  fs::path gamePath_;
+  std::wstring modifier_;
+  CursorScaleGuard& cursorScaleGuard_;
+  HHOOK hook_ = nullptr;
 };
 
 bool stopRequested(const fs::path& controlPath) {
@@ -474,13 +576,21 @@ int wmain(int count, wchar_t** values) {
       options.gamePath,
       options.cursorScalePercent
     );
+    std::unique_ptr<CursorWheelGuard> cursorWheelGuard;
+    if (options.cursorWheelModifier != L"disabled") {
+      cursorWheelGuard = std::make_unique<CursorWheelGuard>(
+        options.gamePath,
+        options.cursorWheelModifier,
+        cursorScaleGuard
+      );
+    }
     cursorScaleGuard.update();
     writeStatus(
       options.statusPath,
       true,
       GetCurrentProcessId(),
       cursorScaleGuard.active(),
-      options.cursorScalePercent,
+      cursorScaleGuard.scalePercent(),
       cursorScaleGuard.originalBaseSize(),
       cursorScaleGuard.foregroundPid(),
       cursorScaleGuard.foregroundProcessName()
@@ -500,7 +610,7 @@ int wmain(int count, wchar_t** values) {
           true,
           GetCurrentProcessId(),
           cursorScaleGuard.active(),
-          options.cursorScalePercent,
+          cursorScaleGuard.scalePercent(),
           cursorScaleGuard.originalBaseSize(),
           cursorScaleGuard.foregroundPid(),
           cursorScaleGuard.foregroundProcessName()
@@ -514,7 +624,7 @@ int wmain(int count, wchar_t** values) {
       false,
       GetCurrentProcessId(),
       false,
-      options.cursorScalePercent,
+      cursorScaleGuard.scalePercent(),
       cursorScaleGuard.originalBaseSize()
     );
     CloseHandle(parent);

@@ -64,6 +64,16 @@ test("게임 포커스 중에만 접근성 커서 크기를 바꾸고 원래 값
   assert.doesNotMatch(source, /SetTimer\(/)
   assert.match(source, /foregroundPid/)
   assert.match(source, /foregroundProcessName/)
+  assert.match(source, /cursorScalePercent >= 75[\s\S]*cursorScalePercent <= 800/)
+  assert.match(source, /std::clamp\([\s\S]*scalePercent_ \+ \(direction > 0 \? 25 : -25\)[\s\S]*800/)
+  assert.match(source, /MulDiv\([\s\S]*scalePercent_[\s\S]*256/)
+  assert.match(source, /SetWindowsHookExW\([\s\S]*WH_MOUSE_LL/)
+  assert.match(source, /message != WM_MOUSEWHEEL/)
+  assert.match(source, /VK_CONTROL/)
+  assert.match(source, /VK_MENU/)
+  assert.match(source, /isTargetGameForeground\(active_->gamePath_\)/)
+  assert.match(source, /cursorScaleGuard_\.adjustScale\(wheelDelta\)/)
+  assert.match(source, /return 1;/)
   assert.match(
     source,
     /foregroundPath\.empty\(\)[\s\S]*processImageName\(pid\)[\s\S]*gameFileName_/,
@@ -84,9 +94,11 @@ test("마비노기 입력 기능 설정은 앱 수명주기와 고급 기능 UI�
   assert.match(main, /async function ensureInputGuardStarted\(\)/)
   assert.match(main, /application:get-input-guard-setting/)
   assert.match(main, /application:set-input-guard-setting/)
-  assert.match(main, /inputGuardCursorScalePercentages = new Set\(\[75, 100, 125, 150, 200\]\)/)
+  assert.match(main, /Array\.from\(\{ length: 30 \}, \(_, index\) => 75 \+ index \* 25\)/)
+  assert.match(main, /inputGuardCursorWheelModifiers = new Set\(\["disabled", "control", "alt"\]\)/)
   assert.match(main, /`--alt-enter-enabled=\$\{setting\.enabled \? 1 : 0\}`/)
   assert.match(main, /`--cursor-scale-percent=\$\{setting\.cursorScalePercent\}`/)
+  assert.match(main, /`--cursor-wheel-modifier=\$\{setting\.cursorWheelModifier\}`/)
   assert.match(main, /"--restore-only=1"/)
   assert.match(main, /function inputGuardCursorRestoreSize\(status\)/)
   assert.match(main, /`--restore-cursor-base-size=\$\{restoreCursorBaseSize\}`/)
@@ -100,9 +112,13 @@ test("마비노기 입력 기능 설정은 앱 수명주기와 고급 기능 UI�
   )
   assert.match(
     app,
-    /게임 마우스 커서 크기[\s\S]*마비노기 플레이 중에만 Windows 마우스 커서 크기를 변경합니다/,
+    /게임 마우스 커서 크기[\s\S]*최대 800%까지 Windows 마우스 커서 크기를 변경합니다/,
   )
-  assert.match(app, /mouseCursorScaleOptions = \[75, 100, 125, 150, 200\]/)
+  assert.match(app, /mouseCursorScaleOptions = Array\.from/)
+  assert.match(app, /커서 크기 휠 조절/)
+  assert.match(app, /Ctrl \+ 휠/)
+  assert.match(app, /Alt \+ 휠/)
+  assert.match(app, /changeMouseCursorWheelModifier/)
   assert.equal(
     packageInfo.scripts["native:input-guard"],
     "node scripts/build-input-guard-helper.mjs",

@@ -466,7 +466,6 @@
 
       installButton.addEventListener("click", installUpdate)
       closeButton.addEventListener("click", () => {
-        closeButton.disabled = true
         void window.dxvkManager.requestClose()
       })
       versionSelect.addEventListener("change", () => {

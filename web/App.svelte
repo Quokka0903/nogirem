@@ -173,7 +173,16 @@
   let inputGuardAction = null
   let inputGuardNotice = ""
   let mouseCursorScalePercent = 100
-  const mouseCursorScaleOptions = [75, 100, 125, 150, 200]
+  let mouseCursorWheelModifier = "disabled"
+  const mouseCursorScaleOptions = Array.from(
+    { length: 30 },
+    (_, index) => 75 + index * 25,
+  )
+  const mouseCursorWheelModifierOptions = [
+    { value: "disabled", label: "사용 안 함" },
+    { value: "control", label: "Ctrl + 휠" },
+    { value: "alt", label: "Alt + 휠" },
+  ]
   let blackboxSettingLoaded = false
   let blackboxFeatureEnabled = false
   let blackboxFeatureAction = null
@@ -1189,6 +1198,7 @@
     inputGuardEnabled = Boolean(state.enabled)
     inputGuardRunning = Boolean(state.running)
     mouseCursorScalePercent = Number(state.cursorScalePercent) || 100
+    mouseCursorWheelModifier = state.cursorWheelModifier ?? "disabled"
     inputGuardNotice = state.reason ?? ""
   }
 
@@ -1220,6 +1230,26 @@
         await window.nogirem.setInputGuardSetting({
           enabled: inputGuardEnabled,
           cursorScalePercent: nextScalePercent,
+        }),
+      )
+    } catch (error) {
+      inputGuardNotice = messageOf(error)
+    } finally {
+      inputGuardAction = null
+    }
+  }
+
+  async function changeMouseCursorWheelModifier(event) {
+    if (!inputGuardSettingLoaded || inputGuardAction) return
+    const nextModifier = event.currentTarget.value
+    inputGuardAction = "saving"
+    inputGuardNotice = ""
+    try {
+      applyInputGuardState(
+        await window.nogirem.setInputGuardSetting({
+          enabled: inputGuardEnabled,
+          cursorScalePercent: mouseCursorScalePercent,
+          cursorWheelModifier: nextModifier,
         }),
       )
     } catch (error) {
@@ -2757,7 +2787,7 @@
                   <div class="developer-tool-row">
                     <div>
                       <h2>게임 마우스 커서 크기</h2>
-                      <p>마비노기 플레이 중에만 Windows 마우스 커서 크기를 변경합니다</p>
+                      <p>마비노기 플레이 중에만 최대 800%까지 Windows 마우스 커서 크기를 변경합니다</p>
                     </div>
                     <select
                       class="developer-tool-select"
@@ -2768,6 +2798,23 @@
                     >
                       {#each mouseCursorScaleOptions as scalePercent}
                         <option value={scalePercent}>{scalePercent}%</option>
+                      {/each}
+                    </select>
+                  </div>
+                  <div class="developer-tool-row">
+                    <div>
+                      <h2>커서 크기 휠 조절</h2>
+                      <p>마비노기 플레이 중 선택한 보조 키와 휠로 크기를 25%씩 조절합니다</p>
+                    </div>
+                    <select
+                      class="developer-tool-select"
+                      value={mouseCursorWheelModifier}
+                      disabled={!inputGuardSettingLoaded || inputGuardAction}
+                      aria-label="커서 크기 휠 조절"
+                      onchange={changeMouseCursorWheelModifier}
+                    >
+                      {#each mouseCursorWheelModifierOptions as option}
+                        <option value={option.value}>{option.label}</option>
                       {/each}
                     </select>
                   </div>

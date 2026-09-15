@@ -2675,25 +2675,34 @@ async function waitForInputGuardStatus(predicate, timeoutMs = 3000) {
   return null
 }
 
-const inputGuardCursorScalePercentages = new Set([75, 100, 125, 150, 200])
+const inputGuardCursorScalePercentages = new Set(
+  Array.from({ length: 30 }, (_, index) => 75 + index * 25),
+)
+const inputGuardCursorWheelModifiers = new Set(["disabled", "control", "alt"])
 
 function normalizeInputGuardSetting(value) {
   const cursorScalePercent = Number(value?.cursorScalePercent)
+  const cursorWheelModifier = String(value?.cursorWheelModifier ?? "disabled")
   return {
     enabled: Boolean(value?.enabled),
     cursorScalePercent: inputGuardCursorScalePercentages.has(cursorScalePercent)
       ? cursorScalePercent
       : 100,
+    cursorWheelModifier: inputGuardCursorWheelModifiers.has(cursorWheelModifier)
+      ? cursorWheelModifier
+      : "disabled",
   }
 }
 
 function inputGuardHelperRequired(setting) {
-  return setting.enabled || setting.cursorScalePercent !== 100
+  return setting.enabled
+    || setting.cursorScalePercent !== 100
+    || setting.cursorWheelModifier !== "disabled"
 }
 
 function inputGuardCursorRestoreSize(status) {
   const size = Number(status?.originalCursorBaseSize)
-  return status?.cursorActive && Number.isInteger(size) && size > 0 && size <= 512
+  return status?.cursorActive && Number.isInteger(size) && size > 0 && size <= 256
     ? size
     : 0
 }
@@ -2704,12 +2713,27 @@ async function getInputGuardSetting() {
     readJson(paths.settingsPath),
     readRuntimeStatusJson(paths.statusPath),
   ])
-  const setting = normalizeInputGuardSetting(settings)
+  let setting = normalizeInputGuardSetting(settings)
   const running = Boolean(
     inputGuardProcess
     && inputGuardProcess.exitCode === null
     && status?.running,
   )
+  const runtimeScalePercent = Number(status?.cursorScalePercent)
+  if (
+    running
+    && inputGuardCursorScalePercentages.has(runtimeScalePercent)
+    && runtimeScalePercent !== setting.cursorScalePercent
+  ) {
+    setting = {
+      ...setting,
+      cursorScalePercent: runtimeScalePercent,
+    }
+    await writeJsonAtomic(paths.settingsPath, {
+      ...setting,
+      updatedAt: Date.now(),
+    })
+  }
   return {
     ...setting,
     running,
@@ -2753,6 +2777,7 @@ async function launchInputGuardHelper(settingValue) {
     `--parent-pid=${process.pid}`,
     `--alt-enter-enabled=${setting.enabled ? 1 : 0}`,
     `--cursor-scale-percent=${setting.cursorScalePercent}`,
+    `--cursor-wheel-modifier=${setting.cursorWheelModifier}`,
     ...(restoreCursorBaseSize > 0
       ? [`--restore-cursor-base-size=${restoreCursorBaseSize}`]
       : []),
@@ -5713,6 +5738,10 @@ function registerIpc() {
           "cursorScalePercent" in setting
           && !inputGuardCursorScalePercentages.has(Number(setting.cursorScalePercent))
         )
+        || (
+          "cursorWheelModifier" in setting
+          && !inputGuardCursorWheelModifiers.has(String(setting.cursorWheelModifier))
+        )
       )
     ) {
       throw new Error("마비노기 입력 기능 설정 값이 올바르지 않습니다")
@@ -6316,10 +6345,25 @@ function openDxvkManager(reveal = true) {
     writeStartupLog(`Vulkan 관리 창 표시 준비 ${Date.now() - openedAt}ms`)
   })
   window.on("close", event => {
-    if (closing) return
+    if (
+      applicationExitInProgress
+      || internalWindowsClosedForTray.has(window)
+    ) {
+      closing = true
+      return
+    }
     event.preventDefault()
+    if (closing) return
     closing = true
-    animateOpacity(window.getOpacity(), 0, 300, () => window.destroy())
+    animateOpacity(window.getOpacity(), 0, 300, () => {
+      if (window.isDestroyed()) return
+      window.hide()
+      window.setOpacity(0)
+      revealed = false
+      revealRequested = false
+      closing = false
+      focusPrimaryWindow()
+    })
   })
   window.on("closed", () => {
     const closedForTray = internalWindowsClosedForTray.delete(window)

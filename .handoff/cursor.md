@@ -1,11 +1,13 @@
 # Cursor AI Handoff
 
-Last Updated: 2026-09-16 03:56
+Last Updated: 2026-09-16 04:01
 
 ## Current Objective
 0.3.14 블랙박스 재생 개선과 마비노기 포커스 전용 마우스 커서 크기 기능을 검증한다.
 
 ## Current Status
+- Vulkan 사전 로드는 최초 열기만 빨랐고 일반 닫기에서 `window.destroy()`를 호출해 두 번째 열기부터 다시 생성·렌더링하는 회귀가 있었다. 일반 닫기는 페이드아웃 후 `hide()`하고 같은 BrowserWindow·렌더러·조회 상태를 유지한다. 앱 종료 또는 트레이 전환만 실제 close를 허용하며, 다시 열 때 준비된 창을 즉시 300ms 페이드인한다. 보존된 DOM에서 닫기 버튼을 재사용할 수 있도록 일회성 disabled 처리도 제거했다.
+- 게임 커서 크기를 75~800% 사이 25% 단위로 확장했다. 800%는 기본 `CursorBaseSize` 32 기준 Windows 접근성 최대값 256이며 원래 커서가 더 큰 환경도 절대 256에서 제한한다. 고급 기능에 `사용 안 함`·`Ctrl + 휠`·`Alt + 휠` 옵션을 추가했고, 활성화 시에만 `WH_MOUSE_LL` hook을 만든다. 마비노기 포그라운드의 물리 휠만 소비해 25%씩 조절하고 helper status의 변경값을 main 설정에 반영해 영구 저장한다. 최종 helper는 310,784바이트·SHA-256 `ED00439D…27E6DEA5`이며 현재 PC에서 800%·CursorBaseSize 256 적용과 32 복원을 확인했다.
 - 03:55 로그에서 최신 Vulkan 창은 클릭 후 DOM 93ms, 문서 98ms, 완성 렌더 114ms였으나 창 생성과 300ms 페이드가 클릭 뒤 순차 실행돼 사용자는 이를 검은 대기로 인식했다. 데이터 조회는 원래 비동기였지만 창 자체를 opacity 0으로 기다리게 한 구조가 문제였다. 메인 문서 로드 직후 `openDxvkManager(false)`로 숨김 사전 로드해 정적 골격·캐시 상태를 미리 렌더링하고 온라인 최신 조회도 시작한다. 클릭은 준비된 창의 reveal 함수만 호출해 즉시 300ms 페이드하며, 조회가 끝나지 않았으면 열린 골격에서 결과만 갱신한다.
 - 03:43 재실행 로그에서 커서 미작동 원인이 확정됐다. `ensureInputGuardStarted`가 이전 원래 크기 기록 없이 `--restore-only=1`을 실행했고 helper의 불필요한 `SPI_SETCURSORS`가 종료 코드 1을 반환해 실제 감시 helper를 시작하기 전에 `마비노기 입력 기능 자동 실행 실패`로 중단됐다. 원래 크기가 없으면 복구 없이 성공 종료하도록 수정했다. 감시는 `SetTimer` 메시지 대신 `PeekMessage`와 50ms 주기 루프로 결정적으로 실행하고, status에 포그라운드 PID·파일명을 남긴다. 동기식 `SPIF_SENDCHANGE`도 제거했다. 현재 PC에서 포그라운드 `Cursor.exe`를 대상으로 `cursorActive:true`, 150% 적용, 포커스 종료 뒤 32 복원까지 전체 흐름을 검증했다. 최종 helper는 307,712바이트·SHA-256 `C8B54982…7FBA8FE`다.
 - 실제 Vulkan 로그는 클릭 후 DOM 201~235ms, `ready-to-show` 205~240ms, 문서 로드 234~237ms였다. 창을 `ready-to-show`에서 먼저 노출해 문서보다 약 30ms 빠른 검은 배경이 보였고, 페이드 제거로 내용이 갑자기 나타났다. 이제 문서 로드와 두 번의 `requestAnimationFrame`이 끝날 때까지 opacity 0으로 유지한 뒤 완성된 창 전체를 300ms 페이드인한다.
@@ -369,6 +371,8 @@ Last Updated: 2026-09-16 03:56
 - 프로덕션 빌드, Electron 구문 검사, 전체 테스트 20개와 편집기 린트가 통과했다.
 
 ## Architecture / Important Decisions
+- Vulkan 관리 창은 사용자 닫기에서 파괴하지 않고 숨겨 재사용한다. 앱 종료와 트레이 진입에서는 기존 내부 창 정리 흐름을 위해 실제 close를 허용한다.
+- 커서 휠 조절은 입력 지연을 피하기 위해 옵션이 켜진 경우에만 별도 `WH_MOUSE_LL` hook을 설치한다. 주입된 휠은 무시하고 마비노기 포그라운드와 선택 modifier가 모두 맞을 때만 입력을 소비한다.
 - Vulkan 관리 창의 네트워크 최신 조회는 창 표시를 막지 않는다. 메인 렌더러 준비 직후 숨김 BrowserWindow를 사전 생성해 골격과 캐시를 먼저 그리며, 클릭 시 준비된 창을 표시한다.
 - 보조 창 페이드는 `ready-to-show`만으로 시작하지 않는다. 독립 문서의 load 완료 후 렌더러에서 두 프레임을 기다려 실제 내용이 합성된 다음 창을 표시하고 opacity를 올린다.
 - input-guard 시작 복구는 저장된 `originalCursorBaseSize`가 있을 때만 크기를 복원한다. 값이 없으면 시스템 커서 재로드를 시도하지 않으며 실제 감시 helper 시작을 막지 않는다.
@@ -540,6 +544,7 @@ Last Updated: 2026-09-16 03:56
 - REPORT 응답에는 이메일·사용자명·시스템 경로 등 개인정보와 민감한 진단 원문을 기록하지 않는다.
 
 ## Pending Tasks
+1. 마비노기에서 Ctrl·휠과 Alt·휠의 25% 조절, UI 비율 동기화 및 재실행 후 유지 여부를 수동 확인한다.
 1. 새 helper를 로드한 상태에서 마비노기 Client.exe를 포커스해 input-guard status의 `cursorActive`가 true로 전환되고 `CursorBaseSize`가 선택 비율로 바뀌는지 확인한다.
 1. 수정된 helper로 마비노기에서 75%·125%·150%·200%를 각각 선택하고, 게임 커서 반영과 Alt+Tab 직후 원래 Windows 커서 크기 복원을 수동 검증한다.
 1. 문제 청크가 있는 환경에서 0.3.14 개발본 또는 다음 설치본으로 같은 시간대를 열어 검정 화면이 복구되는지 확인한다. 재현되면 진단 ZIP의 `blackbox-events.log`에서 `timeline-gap`, `segment-error`, `load-timeout`, `seek-timeout` 중 어느 단계인지 확인하고 실제 청크도 함께 분석한다.
@@ -622,6 +627,7 @@ Last Updated: 2026-09-16 03:56
 20. 마비노기 전면 창에서 `2 누름 → 3 누름 → 일반 키 4 누름·해제 → 3 해제 → 2 해제` 순서로 실제 입력 전환을 확인한다.
 
 ## Known Issues
+- Windows 접근성 커서의 절대 최대값은 `CursorBaseSize=256`이므로 기본 크기 32 기준 800%보다 크게 설정할 수 없다.
 - 보호된 게임 프로세스는 일반 권한 진단에서 실행 경로가 비어 보일 수 있다. helper는 전체 경로 조회 실패 시 파일명 `Client.exe`로 폴백하지만, 실제 게임 포커스에서 동작 확인은 남아 있다.
 - 최초 `SetSystemCursor` 구현은 마비노기 커서에 반영되지 않아 폐기했다. 현재 구현은 게임에서 반영됨이 확인된 Windows 접근성 `CursorBaseSize` 경로를 사용하지만, 수정된 helper를 실제 게임 포커스 전환과 함께 실행하는 최종 수동 확인은 남아 있다.
 - 이번 수정은 편집기 청크 전환·seek 실패를 복구하지만 Windows Graphics Capture 자체가 검정 픽셀을 전달해 정상 MP4로 인코딩한 경우까지 영상 내용을 복원하지는 못한다. 새 로그로 재생 경로 이상은 판별할 수 있으나 실제 픽셀 검정 여부를 확정하려면 문제 청크가 필요하다.
@@ -755,6 +761,7 @@ Last Updated: 2026-09-16 03:56
 - `vite.config.mjs`: Svelte 렌더러 빌드 설정
 
 ## Recent Changes
+- Vulkan 관리 창 일반 닫기를 destroy에서 hide로 바꿔 두 번째 이후 열기도 사전 로드 창을 재사용한다. 커서 범위를 최대 800%로 확장하고 게임 중 Ctrl·Alt 휠 조절과 설정 영속화를 추가했다.
 - Vulkan 관리 창을 앱 시작 후 숨김 상태로 사전 로드하고 최신 릴리스 조회를 미리 시작하도록 변경했다. 클릭 시 새 창 생성·렌더 대기 없이 준비된 골격을 즉시 페이드인한다.
 - Vulkan 창은 완성 프레임 이후 300ms 페이드인하도록 수정했다. input-guard의 복구-only 종료 코드 1로 실제 helper가 시작되지 않던 원인을 고치고, 50ms 결정적 감시와 포그라운드 상태 진단을 추가했다.
 - 커서 helper를 Windows 접근성 실제 크기 API `0x2029`로 교체하고 최종 바이너리의 적용·복원을 실행 검증했다. 개발 Vulkan 관리 창은 Vite를 우회해 로컬 파일로 즉시 로드하며 단계별 시간 로그를 남긴다.
@@ -1591,4 +1598,4 @@ Last Updated: 2026-09-16 03:56
 - 정확 재인코딩의 첫 PCM sample 내부에서 요청 시점 전 frame을 제거해 AAC frame 경계의 최대 약 21ms 선행도 없앴다. 실제 비정렬 시작점 추출은 통과했지만 실행 중 recorder 잠금 때문에 배포용 local bin 갱신은 남아 있다.
 
 ## Next Recommended Step
-개발 앱을 완전히 종료하고 `npm run app:dev`로 재실행한다. 메인 화면이 뜬 뒤 Vulkan 창을 열어 검은 대기 없이 준비된 골격이 즉시 페이드인하는지 확인한다.
+개발 앱을 완전히 종료하고 `npm run app:dev`로 재실행한다. Vulkan 창을 열고 닫은 뒤 두 번째 열기도 즉시 페이드인하는지 확인하고, 마비노기에서 커서 800% 및 선택한 Ctrl·Alt 휠 조절을 확인한다.

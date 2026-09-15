@@ -288,6 +288,14 @@ test("관리 창의 확인·설치 완료 상태를 메인 화면에 즉시 전�
     /렌더러 문서 로드 완료[\s\S]*setTimeout\(\(\) => \{[\s\S]*openDxvkManager\(false\)/,
   )
   assert.match(managerSource, /void loadInstalled\(\)\.then\(checkUpdate\)/)
+  assert.match(
+    dxvkManagerWindowSource,
+    /window\.on\("close"[\s\S]*event\.preventDefault\(\)[\s\S]*window\.hide\(\)[\s\S]*revealed = false[\s\S]*revealRequested = false/,
+  )
+  assert.doesNotMatch(
+    managerSource,
+    /closeButton\.addEventListener\("click"[\s\S]{0,100}closeButton\.disabled = true/,
+  )
   assert.match(dxvkManagerWindowSource, /paintWhenInitiallyHidden: true/)
   assert.match(
     dxvkManagerWindowSource,

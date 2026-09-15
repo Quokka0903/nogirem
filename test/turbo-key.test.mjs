@@ -116,7 +116,6 @@ test("터보 키를 사용하기 전에 설정 모달을 열고 사용 중일 �
     applicationView,
     /\{#if turboKeyEnabled\}[\s\S]*openTurboKeySettings[\s\S]*키 설정[\s\S]*\{\/if\}/,
   )
-  assert.doesNotMatch(applicationView, /사용 안 함/)
   assert.match(applicationView, /turboKeyEnabled[\s\S]*"사용하기"/)
   assert.match(
     applicationView,
