@@ -1,11 +1,12 @@
 # Cursor AI Handoff
 
-Last Updated: 2026-09-16 01:12
+Last Updated: 2026-09-16 01:25
 
 ## Current Objective
 0.3.14 블랙박스 영상 추출의 검정 화면 재생 경로를 개선하고 실제 문제 환경에서 결과를 확인한다.
 
 ## Current Status
+- 블랙박스 검정 화면 진단 UUID에 `블랙박스 검정 화면 확인 및 개선` REPORT 답변을 추가했다. 문제 시간대에도 녹화와 청크 생성이 계속됐다는 확인 결과, 기존 로그의 한계, 0.3.14 편집기 복구·로깅 개선, 재발 시 새 진단 ZIP과 문제 시간대 청크를 함께 요청하는 절차를 안내하며 제보자 이름·이메일은 기록하지 않았다.
 - 0.3.13 진단에서 녹화 프로세스와 청크 생성은 문제 시간대에도 계속됐지만, 기존 로그에는 편집기의 청크 선택·프레임 로딩·seek 상태가 없어 검정 프레임 녹화와 재생 실패를 구분할 수 없었다. 편집기는 이제 `loadeddata` 이후에만 seek하고, 청크 로딩 또는 seek가 3초 안에 끝나지 않으면 캐시를 우회해 한 번 다시 연다. 정확한 청크 경계에서 끝난 이전 청크 대신 시작하는 새 청크를 선택하고 마지막 seek는 영상 길이 안쪽으로 제한했다. 청크 로딩·메타데이터·프레임 데이터·seek 완료·오류·timeout·타임라인 빈 구간을 경로 없이 `blackbox-events.log`에 기록한다. 전체 Node 테스트 167개와 프로덕션 Vite 빌드가 통과했다.
 - 배포 커밋 `d29ec18`과 태그 `v0.3.13`을 원격에 푸시하고 [GitHub Release](https://github.com/rubystarashe/nogirem/releases/tag/v0.3.13)로 정식 공개했다. release는 draft·prerelease가 아니며 GitHub 최신 릴리스도 v0.3.13이다. installer·blockmap·`latest.yml`·터보 키 helper 네 자산의 GitHub 크기와 SHA-256 digest가 로컬 검증값과 모두 일치하고 모두 uploaded 상태다. 배포 시점 원격 `master`, 태그와 Release 커밋은 `d29ec18`로 일치한다.
 - 네 건의 0.3.12 진단 UUID에 `패스트핑·TCP 설정 오류 확인 및 수정` REPORT 답변을 추가했다. 공통 원인, Windows 시작 트레이 설정도 영향받았다는 사실, 0.3.13 업데이트 후 두 설정을 다시 켜는 절차를 안내하며 제보자 이름·이메일은 기록하지 않았다. 앱과 lockfile 버전을 0.3.13으로 올리고 Windows x64 NSIS 설치본을 생성했다. 전체 Node 테스트 167개와 네이티브 helper·프로덕션 앱 빌드가 통과했다. 설치본은 96,996,759바이트·SHA-256 `2C4502C0…B8E74`, blockmap은 102,824바이트·`A191B178…E8C4F`, `latest.yml`은 345바이트·`12F560CC…1BAA`, 터보 키 helper는 291,840바이트·`D9504362…16A857`이다. 설치본·ASAR 앱 버전은 0.3.13이며 ASAR에 네 REPORT 답변과 UTF-8 StreamReader PowerShell 실행기가 포함되고 `-EncodedCommand`는 없다. 패키지 내부 input guard·Radeon·recorder helper와 별도 터보 키 자산은 빌드 산출물 SHA-256과 모두 일치한다. recorder 최종 빌드 해시는 `E1E988BF…EAF77`이다.
@@ -729,6 +730,7 @@ Last Updated: 2026-09-16 01:12
 - `vite.config.mjs`: Svelte 렌더러 빌드 설정
 
 ## Recent Changes
+- 블랙박스 검정 화면 진단 건에 분석 결과와 0.3.14 개선 내용, 재발 시 필요한 진단 ZIP·청크 요청을 REPORT 답변으로 추가했다.
 - 영상 추출 편집기의 프레임 데이터 준비 전 seek를 차단하고, 청크 로딩·seek timeout 1회 자동 재시도와 경계 선택 보정을 추가했다. 편집기 재생 단계는 진단 ZIP에 포함되는 블랙박스 이벤트 로그로 기록한다.
 - 진단 ZIP마다 UUID를 파일명·시스템 요약·`report.json`에 넣고 성공적으로 추출한 UUID만 AppData에 기록하도록 변경했다.
 - 앱 실행과 업데이트 확인에 REPORT ETag 조건부 조회를 연결하고 소유 UUID의 미확인 답변을 기존 흰색 모달 디자인으로 표시한다.
