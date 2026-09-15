@@ -1,4 +1,5 @@
 #include <windows.h>
+#include <tlhelp32.h>
 
 #include <algorithm>
 #include <chrono>
@@ -100,13 +101,34 @@ std::wstring processImagePath(DWORD pid) {
   return path;
 }
 
+std::wstring processImageName(DWORD pid) {
+  const HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+  if (snapshot == INVALID_HANDLE_VALUE) return {};
+  PROCESSENTRY32W entry{};
+  entry.dwSize = sizeof(entry);
+  std::wstring name;
+  if (Process32FirstW(snapshot, &entry)) {
+    do {
+      if (entry.th32ProcessID == pid) {
+        name = entry.szExeFile;
+        break;
+      }
+    } while (Process32NextW(snapshot, &entry));
+  }
+  CloseHandle(snapshot);
+  return name;
+}
+
 bool isTargetGameForeground(const fs::path& gamePath) {
   const HWND foreground = GetForegroundWindow();
   if (!foreground) return false;
   DWORD pid = 0;
   GetWindowThreadProcessId(foreground, &pid);
   const auto foregroundPath = processImagePath(pid);
-  if (foregroundPath.empty()) return false;
+  if (foregroundPath.empty()) {
+    return lowerPath(processImageName(pid))
+      == lowerPath(gamePath.filename().wstring());
+  }
   return lowerPath(foregroundPath) == lowerPath(gamePath.wstring());
 }
 
@@ -167,7 +189,8 @@ void setCursorBaseSize(DWORD value) {
 class ForegroundGameCache {
 public:
   explicit ForegroundGameCache(fs::path gamePath)
-    : gamePath_(lowerPath(gamePath.wstring())) {}
+    : gamePath_(lowerPath(gamePath.wstring())),
+      gameFileName_(lowerPath(gamePath.filename().wstring())) {}
 
   bool matches() {
     const HWND foreground = GetForegroundWindow();
@@ -177,13 +200,20 @@ public:
     lastWindow_ = foreground;
     lastPid_ = pid;
     const auto foregroundPath = processImagePath(pid);
+    if (foregroundPath.empty()) {
+      lastMatch_ = lowerPath(processImageName(pid)) == gameFileName_;
+      return lastMatch_;
+    }
+    const fs::path foregroundFile(foregroundPath);
     lastMatch_ =
-      !foregroundPath.empty() && lowerPath(foregroundPath) == gamePath_;
+      lowerPath(foregroundPath) == gamePath_
+      || lowerPath(foregroundFile.filename().wstring()) == gameFileName_;
     return lastMatch_;
   }
 
 private:
   std::wstring gamePath_;
+  std::wstring gameFileName_;
   HWND lastWindow_ = nullptr;
   DWORD lastPid_ = 0;
   bool lastMatch_ = false;

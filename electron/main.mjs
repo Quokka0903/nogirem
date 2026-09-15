@@ -6223,7 +6223,6 @@ function openDxvkManager() {
     width: 560,
     height: 430,
     show: false,
-    opacity: 0,
     resizable: false,
     maximizable: false,
     parent: primaryWindow ?? undefined,
@@ -6273,9 +6272,9 @@ function openDxvkManager() {
   window.once("ready-to-show", () => {
     if (window.isDestroyed()) return
     window.center()
+    window.setOpacity(1)
     window.show()
     window.focus()
-    animateOpacity(0, 1, 300)
   })
   window.on("close", event => {
     if (closing) return

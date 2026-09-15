@@ -49,6 +49,11 @@ test("게임 포커스 중에만 접근성 커서 크기를 바꾸고 원래 값
     source,
     /foreground == lastWindow_ && pid == lastPid_[\s\S]*return lastMatch_/,
   )
+  assert.match(source, /CreateToolhelp32Snapshot\(TH32CS_SNAPPROCESS, 0\)/)
+  assert.match(
+    source,
+    /foregroundPath\.empty\(\)[\s\S]*processImageName\(pid\)[\s\S]*gameFileName_/,
+  )
 })
 
 test("마비노기 입력 기능 설정은 앱 수명주기와 고급 기능 UI에 연결된다", async () => {

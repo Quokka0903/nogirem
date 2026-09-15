@@ -1,12 +1,14 @@
 # Cursor AI Handoff
 
-Last Updated: 2026-09-16 03:11
+Last Updated: 2026-09-16 03:17
 
 ## Current Objective
 0.3.14 블랙박스 재생 개선과 마비노기 포커스 전용 마우스 커서 크기 기능을 검증한다.
 
 ## Current Status
-- 최초 커서 구현의 `CopyImage`·`SetSystemCursor` 방식은 Windows 접근성 설정과 달라 마비노기 커서에 반영되지 않았다. 실제 Windows 설정이 사용하는 `HKCU\Control Panel\Cursors\CursorBaseSize` DWORD를 확인했고 현재 PC에서 `32→40→32` 임시 변경·`SPI_SETCURSORS` 반영·원상복원을 검증했다. helper는 시작 시 사용자의 원래 값을 보존하고 마비노기 포커스 중 선택 비율을 적용하며, 포커스 이탈·설정 해제·정상 종료 시 정확한 원래 값을 복원한다. 활성 상태와 원래 값은 status에 기록해 강제 종료 뒤 다음 앱 시작에서도 복구한다. 50ms 감시는 포그라운드 창·PID가 바뀔 때만 프로세스 경로를 다시 조회하도록 캐시했다. 최종 x64 helper는 303,616바이트·SHA-256 `ECFC1C3C…1185CA3`이며 전체 Node 테스트 168개와 프로덕션 빌드가 통과했다.
+- Vulkan 관리 창은 캐시된 v3.1을 먼저 선택한 뒤 온라인에서 v3.1.1을 확인해도 이전 자동 선택을 보존해 최신 버전이 기본 선택되지 않았다. 사용자 변경 여부를 별도로 추적해 직접 선택하기 전에는 최신 호환 권장 버전을 선택하도록 수정했다. 창 표시 전 `opacity: 0`과 300ms 페이드인이 검은 배경 노출을 만들던 경로도 제거해 `ready-to-show`에서 완성 화면을 즉시 표시한다.
+- 커서 설정은 200%로 저장되고 helper도 실행됐지만 게임 포커스를 감지하지 못하면 `cursorActive`가 false로 유지됐다. 보호된 Client.exe의 전체 경로 조회가 실패하는 환경에서도 `CreateToolhelp32Snapshot`의 프로세스 파일명으로 마비노기를 재확인하도록 보강했다. 전체 경로를 읽을 수 있으면 기존 정확 경로 비교를 우선하며, 포그라운드 창·PID 캐시로 반복 경로 조회는 하지 않는다. 최종 x64 helper는 305,664바이트·SHA-256 `9B1E083A…F9C82B3`이다. 전체 Node 테스트 168개, DXVK·입력 targeted 테스트 14개와 프로덕션 빌드가 통과했다.
+- 최초 커서 구현의 `CopyImage`·`SetSystemCursor` 방식은 Windows 접근성 설정과 달라 마비노기 커서에 반영되지 않았다. 실제 Windows 설정이 사용하는 `HKCU\Control Panel\Cursors\CursorBaseSize` DWORD를 확인했고 현재 PC에서 `32→40→32` 임시 변경·`SPI_SETCURSORS` 반영·원상복원을 검증했다. helper는 시작 시 사용자의 원래 값을 보존하고 마비노기 포커스 중 선택 비율을 적용하며, 포커스 이탈·설정 해제·정상 종료 시 정확한 원래 값을 복원한다. 활성 상태와 원래 값은 status에 기록해 강제 종료 뒤 다음 앱 시작에서도 복구한다.
 - 블랙박스 검정 화면 진단 UUID에 `블랙박스 검정 화면 확인 및 개선` REPORT 답변을 추가했다. 문제 시간대에도 녹화와 청크 생성이 계속됐다는 확인 결과, 기존 로그의 한계, 0.3.14 편집기 복구·로깅 개선, 재발 시 새 진단 ZIP과 문제 시간대 청크를 함께 요청하는 절차를 안내하며 제보자 이름·이메일은 기록하지 않았다.
 - 0.3.13 진단에서 녹화 프로세스와 청크 생성은 문제 시간대에도 계속됐지만, 기존 로그에는 편집기의 청크 선택·프레임 로딩·seek 상태가 없어 검정 프레임 녹화와 재생 실패를 구분할 수 없었다. 편집기는 이제 `loadeddata` 이후에만 seek하고, 청크 로딩 또는 seek가 3초 안에 끝나지 않으면 캐시를 우회해 한 번 다시 연다. 정확한 청크 경계에서 끝난 이전 청크 대신 시작하는 새 청크를 선택하고 마지막 seek는 영상 길이 안쪽으로 제한했다. 청크 로딩·메타데이터·프레임 데이터·seek 완료·오류·timeout·타임라인 빈 구간을 경로 없이 `blackbox-events.log`에 기록한다. 전체 Node 테스트 167개와 프로덕션 Vite 빌드가 통과했다.
 - 배포 커밋 `d29ec18`과 태그 `v0.3.13`을 원격에 푸시하고 [GitHub Release](https://github.com/rubystarashe/nogirem/releases/tag/v0.3.13)로 정식 공개했다. release는 draft·prerelease가 아니며 GitHub 최신 릴리스도 v0.3.13이다. installer·blockmap·`latest.yml`·터보 키 helper 네 자산의 GitHub 크기와 SHA-256 digest가 로컬 검증값과 모두 일치하고 모두 uploaded 상태다. 배포 시점 원격 `master`, 태그와 Release 커밋은 `d29ec18`로 일치한다.
@@ -361,6 +363,7 @@ Last Updated: 2026-09-16 03:11
 - 프로덕션 빌드, Electron 구문 검사, 전체 테스트 20개와 편집기 린트가 통과했다.
 
 ## Architecture / Important Decisions
+- DXVK 버전 셀렉터는 사용자가 직접 변경했을 때만 선택을 유지한다. 초기 캐시 상태에서 온라인 조회로 최신 버전이 바뀌면 `recommended`의 최신 호환 버전을 자동 선택한다.
 - 게임 커서 크기는 Windows 접근성 설정과 동일한 `CursorBaseSize` DWORD를 사용한다. helper 시작 시 원래 값을 읽고 변경·복원 때마다 `SPI_SETCURSORS`로 반영한다. 활성 상태의 status에는 `originalCursorBaseSize`를 기록하며 다음 앱은 `--restore-cursor-base-size`를 전달한 restore-only 실행으로 강제 종료 잔여값을 복구한다. 게임 프로세스 DLL 주입이나 API hook은 사용하지 않는다.
 - Alt+Enter 방지는 블랙박스·터보 키와 무관한 번들 native helper가 소유한다. hook thread는 `GetMessageW`와 50ms 상태 타이머로 대기해 일반 키 입력에 polling 지연을 추가하지 않으며, 차단 조건이 아닌 모든 이벤트는 즉시 `CallNextHookEx`로 전달한다.
 - 빠른 클립과 영상 추출의 정확도 정책을 분리한다. 빠른 클립은 요청 순간 현재 청크를 동기 확정하고 최신 청크들의 실제 duration 합계가 설정 길이 이상이 될 때까지 선택한 뒤 전체 청크를 remux한다. 영상 추출만 프레임 단위 정확 구간 재인코딩을 유지한다.
@@ -525,6 +528,7 @@ Last Updated: 2026-09-16 03:11
 - REPORT 응답에는 이메일·사용자명·시스템 경로 등 개인정보와 민감한 진단 원문을 기록하지 않는다.
 
 ## Pending Tasks
+1. 새 helper를 로드한 상태에서 마비노기 Client.exe를 포커스해 input-guard status의 `cursorActive`가 true로 전환되고 `CursorBaseSize`가 선택 비율로 바뀌는지 확인한다.
 1. 수정된 helper로 마비노기에서 75%·125%·150%·200%를 각각 선택하고, 게임 커서 반영과 Alt+Tab 직후 원래 Windows 커서 크기 복원을 수동 검증한다.
 1. 문제 청크가 있는 환경에서 0.3.14 개발본 또는 다음 설치본으로 같은 시간대를 열어 검정 화면이 복구되는지 확인한다. 재현되면 진단 ZIP의 `blackbox-events.log`에서 `timeline-gap`, `segment-error`, `load-timeout`, `seek-timeout` 중 어느 단계인지 확인하고 실제 청크도 함께 분석한다.
 1. 0.3.8 설치본을 NVIDIA 560.94·GTX 1060 환경에서 실행해 DXVK 3.x가 비호환으로 표시되고 v2.7.1이 기본 선택되며 교체 후 게임 흰 화면이 사라지는지 확인한다.
@@ -606,6 +610,7 @@ Last Updated: 2026-09-16 03:11
 20. 마비노기 전면 창에서 `2 누름 → 3 누름 → 일반 키 4 누름·해제 → 3 해제 → 2 해제` 순서로 실제 입력 전환을 확인한다.
 
 ## Known Issues
+- 보호된 게임 프로세스는 일반 권한 진단에서 실행 경로가 비어 보일 수 있다. helper는 전체 경로 조회 실패 시 파일명 `Client.exe`로 폴백하지만, 실제 게임 포커스에서 동작 확인은 남아 있다.
 - 최초 `SetSystemCursor` 구현은 마비노기 커서에 반영되지 않아 폐기했다. 현재 구현은 게임에서 반영됨이 확인된 Windows 접근성 `CursorBaseSize` 경로를 사용하지만, 수정된 helper를 실제 게임 포커스 전환과 함께 실행하는 최종 수동 확인은 남아 있다.
 - 이번 수정은 편집기 청크 전환·seek 실패를 복구하지만 Windows Graphics Capture 자체가 검정 픽셀을 전달해 정상 MP4로 인코딩한 경우까지 영상 내용을 복원하지는 못한다. 새 로그로 재생 경로 이상은 판별할 수 있으나 실제 픽셀 검정 여부를 확정하려면 문제 청크가 필요하다.
 - DXVK 3.x 드라이버 호환 차단은 진단에서 확인된 NVIDIA 560.94 이하 경로를 우선 방어한다. AMD·Intel Windows 드라이버의 Vulkan 기능은 버전 문자열만으로 일관되게 판정하기 어려워 현재 자동 차단 대상에 포함하지 않았다.
@@ -738,6 +743,7 @@ Last Updated: 2026-09-16 03:11
 - `vite.config.mjs`: Svelte 렌더러 빌드 설정
 
 ## Recent Changes
+- Vulkan 관리 창의 최신 호환 버전 자동 선택을 고치고 300ms 검은 페이드인을 제거했다. 커서 helper는 전체 경로 조회 실패 시 Win32 프로세스 스냅샷의 파일명으로 게임을 감지한다.
 - 게임에 반영되지 않는 `SetSystemCursor` 교체를 Windows 접근성 `CursorBaseSize` 변경으로 대체하고 원래 값의 강제 종료 복구와 포그라운드 PID 경로 캐시를 추가했다.
 - 블랙박스 검정 화면 진단 건에 분석 결과와 0.3.14 개선 내용, 재발 시 필요한 진단 ZIP·청크 요청을 REPORT 답변으로 추가했다.
 - 영상 추출 편집기의 프레임 데이터 준비 전 seek를 차단하고, 청크 로딩·seek timeout 1회 자동 재시도와 경계 선택 보정을 추가했다. 편집기 재생 단계는 진단 ZIP에 포함되는 블랙박스 이벤트 로그로 기록한다.
@@ -1569,4 +1575,4 @@ Last Updated: 2026-09-16 03:11
 - 정확 재인코딩의 첫 PCM sample 내부에서 요청 시점 전 frame을 제거해 AAC frame 경계의 최대 약 21ms 선행도 없앴다. 실제 비정렬 시작점 추출은 통과했지만 실행 중 recorder 잠금 때문에 배포용 local bin 갱신은 남아 있다.
 
 ## Next Recommended Step
-개발 앱을 완전히 재시작해 새 helper를 로드한 뒤 마비노기 포커스 안팎에서 커서 5단계 적용·즉시 복원을 확인한다.
+개발 앱을 완전히 재시작해 새 helper를 로드하고 마비노기 포커스에서 커서 적용을 재확인한 뒤, Vulkan 관리 창의 즉시 표시와 v3.1.1 기본 선택도 확인한다.

@@ -258,4 +258,19 @@ test("관리 창의 확인·설치 완료 상태를 메인 화면에 즉시 전�
   assert.match(managerSource, /GitHub 연결 실패 · 저장된 DXVK를 게임에 다시 적용할 수 있습니다/)
   assert.match(managerSource, /드라이버 호환 안 됨/)
   assert.match(managerSource, /status\.recommended\?\.version/)
+  assert.match(managerSource, /let selectionChangedByUser = false/)
+  assert.match(
+    managerSource,
+    /versionSelect\.value = selectionChangedByUser[\s\S]*status\.recommended\?\.version/,
+  )
+  assert.match(managerSource, /selectionChangedByUser = true/)
+  const dxvkManagerWindowSource = mainSource.slice(
+    mainSource.indexOf("function openDxvkManager()"),
+    mainSource.indexOf("\nfunction openBlackboxManager()", mainSource.indexOf("function openDxvkManager()")),
+  )
+  assert.doesNotMatch(dxvkManagerWindowSource, /opacity: 0/)
+  assert.match(
+    dxvkManagerWindowSource,
+    /ready-to-show[\s\S]*window\.setOpacity\(1\)[\s\S]*window\.show\(\)/,
+  )
 })
