@@ -368,16 +368,43 @@ public:
         GetModuleHandleW(nullptr),
         0
       );
+      keyboardHook_ = SetWindowsHookExW(
+        WH_KEYBOARD_LL,
+        keyboardHook,
+        GetModuleHandleW(nullptr),
+        0
+      );
+      initializePhysicalModifierState();
       MSG message{};
       PeekMessageW(&message, nullptr, WM_USER, WM_USER, PM_NOREMOVE);
-      started.set_value(hook_ != nullptr);
-      if (!hook_) return;
+      const bool hooksReady = hook_ != nullptr && keyboardHook_ != nullptr;
+      started.set_value(hooksReady);
+      if (!hooksReady) {
+        if (hook_) UnhookWindowsHookEx(hook_);
+        if (keyboardHook_) UnhookWindowsHookEx(keyboardHook_);
+        hook_ = nullptr;
+        keyboardHook_ = nullptr;
+        return;
+      }
       while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+        if (
+          message.message == WM_TIMER
+          && message.wParam == restoreTimerId_
+        ) {
+          KillTimer(nullptr, restoreTimerId_);
+          restoreTimerId_ = 0;
+          restoreModifier();
+          continue;
+        }
         TranslateMessage(&message);
         DispatchMessageW(&message);
       }
+      if (restoreTimerId_) KillTimer(nullptr, restoreTimerId_);
+      restoreModifier();
       UnhookWindowsHookEx(hook_);
+      UnhookWindowsHookEx(keyboardHook_);
       hook_ = nullptr;
+      keyboardHook_ = nullptr;
     });
     if (!startedFuture.get()) {
       thread_.join();
@@ -387,9 +414,9 @@ public:
   }
 
   ~CursorWheelGuard() {
-    active_.store(nullptr, std::memory_order_release);
     if (threadId_) PostThreadMessageW(threadId_, WM_QUIT, 0, 0);
     if (thread_.joinable()) thread_.join();
+    active_.store(nullptr, std::memory_order_release);
   }
 
   void setForegroundGamePid(DWORD pid) {
@@ -418,9 +445,8 @@ private:
     if (!event || (event->flags & LLMHF_INJECTED) != 0) {
       return CallNextHookEx(nullptr, code, message, parameter);
     }
-    const bool modifierPressed = guard->modifier_ == L"control"
-      ? (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0
-      : (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+    const bool modifierPressed =
+      guard->physicalModifierDown_.load(std::memory_order_acquire);
     DWORD foregroundPid = 0;
     const HWND foreground = GetForegroundWindow();
     if (foreground) GetWindowThreadProcessId(foreground, &foregroundPid);
@@ -438,16 +464,126 @@ private:
       wheelDelta > 0 ? 1 : -1,
       std::memory_order_acq_rel
     );
+    guard->releaseModifierForWheel();
     return 1;
+  }
+
+  static LRESULT CALLBACK keyboardHook(
+    int code,
+    WPARAM message,
+    LPARAM parameter
+  ) {
+    auto* guard = active_.load(std::memory_order_acquire);
+    if (code != HC_ACTION || !guard) {
+      return CallNextHookEx(nullptr, code, message, parameter);
+    }
+    const auto* event =
+      reinterpret_cast<const KBDLLHOOKSTRUCT*>(parameter);
+    if (
+      !event
+      || (event->flags & LLKHF_INJECTED) != 0
+      || !guard->isSelectedModifier(event->vkCode)
+    ) {
+      return CallNextHookEx(nullptr, code, message, parameter);
+    }
+    const bool keyDown =
+      message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
+    const bool keyUp =
+      message == WM_KEYUP || message == WM_SYSKEYUP;
+    if (keyDown) {
+      guard->physicalModifierVirtualKey_.store(
+        event->vkCode,
+        std::memory_order_release
+      );
+      guard->physicalModifierDown_.store(true, std::memory_order_release);
+    } else if (keyUp) {
+      guard->physicalModifierDown_.store(false, std::memory_order_release);
+      guard->modifierTemporarilyReleased_.store(
+        false,
+        std::memory_order_release
+      );
+      if (guard->restoreTimerId_) {
+        KillTimer(nullptr, guard->restoreTimerId_);
+        guard->restoreTimerId_ = 0;
+      }
+    }
+    return CallNextHookEx(nullptr, code, message, parameter);
+  }
+
+  bool isSelectedModifier(DWORD virtualKey) const {
+    if (modifier_ == L"control") {
+      return virtualKey == VK_CONTROL
+        || virtualKey == VK_LCONTROL
+        || virtualKey == VK_RCONTROL;
+    }
+    return virtualKey == VK_MENU
+      || virtualKey == VK_LMENU
+      || virtualKey == VK_RMENU;
+  }
+
+  void initializePhysicalModifierState() {
+    const int leftKey = modifier_ == L"control" ? VK_LCONTROL : VK_LMENU;
+    const int rightKey = modifier_ == L"control" ? VK_RCONTROL : VK_RMENU;
+    if ((GetAsyncKeyState(leftKey) & 0x8000) != 0) {
+      physicalModifierVirtualKey_.store(leftKey, std::memory_order_release);
+      physicalModifierDown_.store(true, std::memory_order_release);
+    } else if ((GetAsyncKeyState(rightKey) & 0x8000) != 0) {
+      physicalModifierVirtualKey_.store(rightKey, std::memory_order_release);
+      physicalModifierDown_.store(true, std::memory_order_release);
+    }
+  }
+
+  bool sendModifierInput(bool keyUp) {
+    INPUT input{};
+    input.type = INPUT_KEYBOARD;
+    input.ki.wVk = static_cast<WORD>(
+      physicalModifierVirtualKey_.load(std::memory_order_acquire)
+    );
+    input.ki.dwFlags = keyUp ? KEYEVENTF_KEYUP : 0;
+    return SendInput(1, &input, sizeof(input)) == 1;
+  }
+
+  void releaseModifierForWheel() {
+    if (
+      !modifierTemporarilyReleased_.exchange(
+        true,
+        std::memory_order_acq_rel
+      )
+      && !sendModifierInput(true)
+    ) {
+      modifierTemporarilyReleased_.store(false, std::memory_order_release);
+      return;
+    }
+    if (restoreTimerId_) KillTimer(nullptr, restoreTimerId_);
+    restoreTimerId_ = SetTimer(nullptr, 0, 30, nullptr);
+  }
+
+  void restoreModifier() {
+    if (
+      !modifierTemporarilyReleased_.load(std::memory_order_acquire)
+    ) {
+      return;
+    }
+    if (
+      !physicalModifierDown_.load(std::memory_order_acquire)
+      || sendModifierInput(false)
+    ) {
+      modifierTemporarilyReleased_.store(false, std::memory_order_release);
+    }
   }
 
   inline static std::atomic<CursorWheelGuard*> active_{nullptr};
   std::wstring modifier_;
   std::atomic<DWORD> foregroundGamePid_{0};
   std::atomic<int> pendingWheelSteps_{0};
+  std::atomic<DWORD> physicalModifierVirtualKey_{VK_CONTROL};
+  std::atomic<bool> physicalModifierDown_{false};
+  std::atomic<bool> modifierTemporarilyReleased_{false};
   std::thread thread_;
   DWORD threadId_ = 0;
+  UINT_PTR restoreTimerId_ = 0;
   HHOOK hook_ = nullptr;
+  HHOOK keyboardHook_ = nullptr;
 };
 
 bool stopRequested(const fs::path& controlPath) {

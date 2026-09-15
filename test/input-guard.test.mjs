@@ -61,7 +61,6 @@ test("게임 포커스 중에만 접근성 커서 크기를 바꾸고 원래 값
   )
   assert.match(source, /CreateToolhelp32Snapshot\(TH32CS_SNAPPROCESS, 0\)/)
   assert.match(source, /PeekMessageW\(&message,[\s\S]*PM_REMOVE/)
-  assert.doesNotMatch(source, /SetTimer\(/)
   assert.match(source, /foregroundPid/)
   assert.match(source, /foregroundProcessName/)
   assert.match(source, /cursorScalePercent >= 75[\s\S]*cursorScalePercent <= 800/)
@@ -69,11 +68,23 @@ test("게임 포커스 중에만 접근성 커서 크기를 바꾸고 원래 값
   assert.match(source, /MulDiv\([\s\S]*scalePercent_[\s\S]*256/)
   assert.match(source, /SetWindowsHookExW\([\s\S]*WH_MOUSE_LL/)
   assert.match(source, /std::thread\([\s\S]*GetMessageW\(&message/)
+  assert.match(
+    source,
+    /class CursorWheelGuard[\s\S]*keyboardHook_ = SetWindowsHookExW\([\s\S]*WH_KEYBOARD_LL/,
+  )
   assert.match(source, /message != WM_MOUSEWHEEL/)
   assert.match(source, /VK_CONTROL/)
   assert.match(source, /VK_MENU/)
   assert.match(source, /foregroundPid != guard->foregroundGamePid_\.load/)
-  assert.match(source, /pendingWheelSteps_\.fetch_add/)
+  assert.match(
+    source,
+    /pendingWheelSteps_\.fetch_add\([\s\S]*releaseModifierForWheel\(\);[\s\S]*return 1;/,
+  )
+  assert.match(source, /LLKHF_INJECTED/)
+  assert.match(source, /input\.ki\.dwFlags = keyUp \? KEYEVENTF_KEYUP : 0/)
+  assert.match(source, /SendInput\(1, &input, sizeof\(input\)\) == 1/)
+  assert.match(source, /SetTimer\(nullptr, 0, 30, nullptr\)/)
+  assert.match(source, /message\.message == WM_TIMER[\s\S]*restoreModifier\(\)/)
   assert.match(source, /takeWheelSteps\(\)[\s\S]*pendingWheelSteps_\.exchange/)
   assert.match(source, /cursorScaleGuard\.adjustScale\(wheelSteps\)/)
   assert.match(source, /return 1;/)
@@ -120,7 +131,7 @@ test("마비노기 입력 기능 설정은 앱 수명주기와 고급 기능 UI�
   assert.match(app, /mouseCursorScaleOptions = Array\.from/)
   assert.match(
     app,
-    /developer-tool-row developer-tool-row-nested[\s\S]*게임 마우스 커서 크기[\s\S]*developer-tool-subsetting[\s\S]*게임 중 휠로 25%씩 조절/,
+    /developer-tool-row developer-tool-row-nested[\s\S]*게임 마우스 커서 크기[\s\S]*developer-tool-subsetting[\s\S]*게임 중 휠로 25%씩 조절 · 조합 입력 차단/,
   )
   assert.match(app, /Ctrl \+ 휠/)
   assert.match(app, /Alt \+ 휠/)
