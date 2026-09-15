@@ -529,22 +529,42 @@ class AltEnterGuard {
 public:
   explicit AltEnterGuard(fs::path gamePath)
     : gamePath_(std::move(gamePath)) {
-    active_ = this;
-    hook_ = SetWindowsHookExW(
-      WH_KEYBOARD_LL,
-      keyboardHook,
-      GetModuleHandleW(nullptr),
-      0
-    );
-    if (!hook_) {
-      active_ = nullptr;
+    active_.store(this, std::memory_order_release);
+    std::promise<bool> started;
+    auto startedFuture = started.get_future();
+    thread_ = std::thread([
+      this,
+      started = std::move(started)
+    ]() mutable {
+      threadId_ = GetCurrentThreadId();
+      hook_ = SetWindowsHookExW(
+        WH_KEYBOARD_LL,
+        keyboardHook,
+        GetModuleHandleW(nullptr),
+        0
+      );
+      MSG message{};
+      PeekMessageW(&message, nullptr, WM_USER, WM_USER, PM_NOREMOVE);
+      started.set_value(hook_ != nullptr);
+      if (!hook_) return;
+      while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
+      }
+      UnhookWindowsHookEx(hook_);
+      hook_ = nullptr;
+    });
+    if (!startedFuture.get()) {
+      thread_.join();
+      active_.store(nullptr, std::memory_order_release);
       throw std::runtime_error("키보드 입력 감시를 시작하지 못했습니다");
     }
   }
 
   ~AltEnterGuard() {
-    if (hook_) UnhookWindowsHookEx(hook_);
-    active_ = nullptr;
+    active_.store(nullptr, std::memory_order_release);
+    if (threadId_) PostThreadMessageW(threadId_, WM_QUIT, 0, 0);
+    if (thread_.joinable()) thread_.join();
   }
 
 private:
@@ -553,7 +573,8 @@ private:
     WPARAM message,
     LPARAM parameter
   ) {
-    if (code != HC_ACTION || !active_) {
+    auto* guard = active_.load(std::memory_order_acquire);
+    if (code != HC_ACTION || !guard) {
       return CallNextHookEx(nullptr, code, message, parameter);
     }
     const auto* event =
@@ -572,21 +593,23 @@ private:
       if (
         keyDown
         && altPressed
-        && isTargetGameForeground(active_->gamePath_)
+        && isTargetGameForeground(guard->gamePath_)
       ) {
-        active_->blockingEnter_ = true;
+        guard->blockingEnter_ = true;
         return 1;
       }
-      if (keyUp && active_->blockingEnter_) {
-        active_->blockingEnter_ = false;
+      if (keyUp && guard->blockingEnter_) {
+        guard->blockingEnter_ = false;
         return 1;
       }
     }
     return CallNextHookEx(nullptr, code, message, parameter);
   }
 
-  inline static AltEnterGuard* active_ = nullptr;
+  inline static std::atomic<AltEnterGuard*> active_{nullptr};
   fs::path gamePath_;
+  std::thread thread_;
+  DWORD threadId_ = 0;
   HHOOK hook_ = nullptr;
   bool blockingEnter_ = false;
 };
@@ -652,14 +675,7 @@ int wmain(int count, wchar_t** values) {
       cursorScaleGuard.foregroundProcessName()
     );
 
-    MSG message{};
     while (processRunning(parent) && !stopRequested(options.controlPath)) {
-      while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
-        if (message.message == WM_QUIT) break;
-        TranslateMessage(&message);
-        DispatchMessageW(&message);
-      }
-      if (message.message == WM_QUIT) break;
       const int wheelSteps = cursorWheelGuard
         ? cursorWheelGuard->takeWheelSteps()
         : 0;

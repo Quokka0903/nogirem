@@ -10,7 +10,10 @@ test("Alt Enter 방지는 마비노기 포그라운드의 Enter 입력만 소비
     "utf8",
   )
 
-  assert.match(source, /SetWindowsHookExW\([\s\S]*WH_KEYBOARD_LL/)
+  assert.match(
+    source,
+    /class AltEnterGuard[\s\S]*std::thread\([\s\S]*SetWindowsHookExW\([\s\S]*WH_KEYBOARD_LL[\s\S]*GetMessageW\(&message/,
+  )
   assert.match(source, /event->vkCode == VK_RETURN/)
   assert.match(source, /LLKHF_ALTDOWN/)
   assert.match(
@@ -19,7 +22,7 @@ test("Alt Enter 방지는 마비노기 포그라운드의 Enter 입력만 소비
   )
   assert.match(
     source,
-    /keyUp && active_->blockingEnter_[\s\S]*blockingEnter_ = false;[\s\S]*return 1;/,
+    /keyUp && guard->blockingEnter_[\s\S]*blockingEnter_ = false;[\s\S]*return 1;/,
   )
   assert.match(source, /return CallNextHookEx\(nullptr, code, message, parameter\);/)
   assert.match(source, /WaitForSingleObject\(process, 0\) == WAIT_TIMEOUT/)
@@ -60,7 +63,7 @@ test("게임 포커스 중에만 접근성 커서 크기를 바꾸고 원래 값
     /changed_ = foreground != lastWindow_ \|\| pid != lastPid_[\s\S]*if \(!changed_\) return lastMatch_/,
   )
   assert.match(source, /CreateToolhelp32Snapshot\(TH32CS_SNAPPROCESS, 0\)/)
-  assert.match(source, /PeekMessageW\(&message,[\s\S]*PM_REMOVE/)
+  assert.doesNotMatch(source, /PeekMessageW\(&message,[\s\S]*PM_REMOVE/)
   assert.match(source, /foregroundPid/)
   assert.match(source, /foregroundProcessName/)
   assert.match(source, /cursorScalePercent >= 75[\s\S]*cursorScalePercent <= 800/)
