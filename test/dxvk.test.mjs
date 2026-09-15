@@ -265,14 +265,29 @@ test("관리 창의 확인·설치 완료 상태를 메인 화면에 즉시 전�
   )
   assert.match(managerSource, /selectionChangedByUser = true/)
   const dxvkManagerWindowSource = mainSource.slice(
-    mainSource.indexOf("function openDxvkManager()"),
-    mainSource.indexOf("\nfunction openBlackboxManager()", mainSource.indexOf("function openDxvkManager()")),
+    mainSource.indexOf("function openDxvkManager("),
+    mainSource.indexOf("\nfunction openBlackboxManager()", mainSource.indexOf("function openDxvkManager(")),
   )
   assert.match(dxvkManagerWindowSource, /show: false,\s*opacity: 0/)
   assert.match(
     dxvkManagerWindowSource,
-    /window\.loadFile\([\s\S]*executeJavaScript\(`[\s\S]*requestAnimationFrame\(\(\) => requestAnimationFrame\(resolve\)\)[\s\S]*window\.show\(\)[\s\S]*animateOpacity\(0, 1, 300\)/,
+    /const revealWindow = \(\) => \{[\s\S]*window\.show\(\)[\s\S]*animateOpacity\(0, 1, 300\)/,
   )
+  assert.match(
+    dxvkManagerWindowSource,
+    /window\.loadFile\([\s\S]*executeJavaScript\(`[\s\S]*requestAnimationFrame\(\(\) => requestAnimationFrame\(resolve\)\)/,
+  )
+  assert.match(mainSource, /let dxvkManagerReveal = null/)
+  assert.match(dxvkManagerWindowSource, /function openDxvkManager\(reveal = true\)/)
+  assert.match(
+    dxvkManagerWindowSource,
+    /contentReady = true[\s\S]*if \(revealRequested\) revealWindow\(\)/,
+  )
+  assert.match(
+    mainSource,
+    /렌더러 문서 로드 완료[\s\S]*setTimeout\(\(\) => \{[\s\S]*openDxvkManager\(false\)/,
+  )
+  assert.match(managerSource, /void loadInstalled\(\)\.then\(checkUpdate\)/)
   assert.match(dxvkManagerWindowSource, /paintWhenInitiallyHidden: true/)
   assert.match(
     dxvkManagerWindowSource,
