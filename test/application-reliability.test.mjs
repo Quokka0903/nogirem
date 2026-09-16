@@ -357,6 +357,10 @@ test("시작 애니메이션은 오디오 정체와 분리하고 무거운 초�
   )
   assert.match(
     electronMain,
+    /async function getOptimizationStatus\(\)[\s\S]*checkGraphics\(\)[\s\S]*checkNetwork\(\)[\s\S]*checkMemory\(\)[\s\S]*frameBoostStartupPromise\.then\(\(\) => checkAffinity/,
+  )
+  assert.match(
+    electronMain,
     /function prepareStartupBeforeAnimation\(reason\)[\s\S]*await ensureBlackboxStarted\(\)[\s\S]*await loadCachedDxvkReleases\(\)/,
   )
   assert.doesNotMatch(

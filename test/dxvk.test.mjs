@@ -277,14 +277,14 @@ test("관리 창의 확인·설치 완료 상태를 메인 화면에 즉시 전�
     mainSource.indexOf("\nfunction openBlackboxManager()", mainSource.indexOf("function openDxvkManager(")),
   )
   assert.match(dxvkManagerWindowSource, /show: false/)
-  assert.doesNotMatch(dxvkManagerWindowSource, /show: false,\s*opacity: 0/)
+  assert.match(dxvkManagerWindowSource, /show: false,\s*opacity: 0/)
   assert.match(
     dxvkManagerWindowSource,
-    /const revealWindow = \(\) => \{[\s\S]*window\.show\(\)[\s\S]*window\.focus\(\)/,
+    /const revealWindow = \(\) => \{[\s\S]*window\.show\(\)[\s\S]*window\.focus\(\)[\s\S]*animateOpacity\(0, 1, 300\)/,
   )
   assert.match(
     dxvkManagerWindowSource,
-    /window\.loadFile\([\s\S]*executeJavaScript\(`[\s\S]*requestAnimationFrame\(\(\) => requestAnimationFrame\(resolve\)\)/,
+    /window\.loadFile\([\s\S]*window\.showInactive\(\)[\s\S]*requestAnimationFrame\(\(\) => requestAnimationFrame\(resolve\)\)[\s\S]*capturePage\(\)/,
   )
   assert.match(mainSource, /let dxvkManagerReveal = null/)
   assert.match(dxvkManagerWindowSource, /function openDxvkManager\(reveal = true\)/)
@@ -303,7 +303,7 @@ test("관리 창의 확인·설치 완료 상태를 메인 화면에 즉시 전�
   assert.match(managerSource, /const generation = statusGeneration[\s\S]*generation === statusGeneration/)
   assert.match(
     dxvkManagerWindowSource,
-    /window\.on\("close"[\s\S]*event\.preventDefault\(\)[\s\S]*closing = true[\s\S]*window\.destroy\(\)/,
+    /window\.on\("close"[\s\S]*event\.preventDefault\(\)[\s\S]*closing = true[\s\S]*animateOpacity\(window\.getOpacity\(\), 0, 300[\s\S]*window\.destroy\(\)/,
   )
   assert.doesNotMatch(
     managerSource,

@@ -5541,13 +5541,27 @@ function resultOf(promise) {
   )
 }
 
+function timedOptimizationResult(name, promise) {
+  const startedAt = Date.now()
+  return resultOf(promise).then(result => {
+    writeStartupLog(`${name} 상태 확인 완료 ${Date.now() - startedAt}ms`)
+    return result
+  })
+}
+
 async function getOptimizationStatus() {
-  await frameBoostStartupPromise
+  const graphics = timedOptimizationResult("그래픽", checkGraphics())
+  const network = timedOptimizationResult("네트워크", checkNetwork())
+  const memory = timedOptimizationResult("메모리", checkMemory())
+  const affinity = timedOptimizationResult(
+    "CPU·NIC",
+    frameBoostStartupPromise.then(() => checkAffinity({ refreshNic: true })),
+  )
   return Promise.all([
-    resultOf(checkGraphics()),
-    resultOf(checkNetwork()),
-    resultOf(checkAffinity({ refreshNic: true })),
-    resultOf(checkMemory()),
+    graphics,
+    network,
+    affinity,
+    memory,
   ]).then(([graphics, network, affinity, memory]) => ({
     graphics,
     nvidia: graphics,
@@ -6273,6 +6287,7 @@ function openDxvkManager(reveal = true) {
     width: 560,
     height: 430,
     show: false,
+    opacity: 0,
     resizable: false,
     maximizable: false,
     parent: primaryWindow ?? undefined,
@@ -6309,6 +6324,24 @@ function openDxvkManager(reveal = true) {
   let contentReady = false
   let revealRequested = reveal
   let revealed = false
+  let opacityTimer = null
+  const animateOpacity = (from, to, duration, onComplete) => {
+    clearInterval(opacityTimer)
+    const startedAt = Date.now()
+    opacityTimer = setInterval(() => {
+      if (window.isDestroyed()) {
+        clearInterval(opacityTimer)
+        opacityTimer = null
+        return
+      }
+      const progress = Math.min(1, (Date.now() - startedAt) / duration)
+      window.setOpacity(from + (to - from) * progress)
+      if (progress < 1) return
+      clearInterval(opacityTimer)
+      opacityTimer = null
+      onComplete?.()
+    }, 16)
+  }
   const revealWindow = () => {
     revealRequested = true
     if (!contentReady || revealed || window.isDestroyed()) return
@@ -6317,9 +6350,10 @@ function openDxvkManager(reveal = true) {
     window.setFocusable(true)
     window.setIgnoreMouseEvents(false)
     window.center()
-    window.show()
+    if (!window.isVisible()) window.show()
     window.moveTop()
     window.focus()
+    animateOpacity(0, 1, 300)
   }
   dxvkManagerReveal = revealWindow
   window.once("ready-to-show", () => {
@@ -6337,10 +6371,13 @@ function openDxvkManager(reveal = true) {
     event.preventDefault()
     if (closing) return
     closing = true
-    window.destroy()
+    animateOpacity(window.getOpacity(), 0, 300, () => {
+      if (!window.isDestroyed()) window.destroy()
+    })
   })
   window.on("closed", () => {
     const closedForTray = internalWindowsClosedForTray.delete(window)
+    clearInterval(opacityTimer)
     if (dxvkManagerWindow === window) {
       dxvkManagerWindow = null
       dxvkManagerReveal = null
@@ -6357,11 +6394,17 @@ function openDxvkManager(reveal = true) {
   void loading
     .then(async () => {
       writeStartupLog(`Vulkan 관리 창 문서 로드 ${Date.now() - openedAt}ms`)
+      if (revealRequested) {
+        window.center()
+        window.showInactive()
+      }
       await window.webContents.executeJavaScript(`
         new Promise(resolve => {
           requestAnimationFrame(() => requestAnimationFrame(resolve))
         })
       `)
+      if (window.isDestroyed()) return
+      await window.webContents.capturePage()
       if (window.isDestroyed()) return
       writeStartupLog(`Vulkan 관리 창 렌더링 완료 ${Date.now() - openedAt}ms`)
       contentReady = true

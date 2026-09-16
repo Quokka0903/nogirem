@@ -1,12 +1,13 @@
 # Cursor AI Handoff
 
-Last Updated: 2026-09-16 11:10
+Last Updated: 2026-09-16 11:20
 
 ## Current Objective
 0.3.15 시작 준비 순서와 Vulkan 관리 창 표시 변경을 사용자 환경에서 검증한다.
 
 ## Current Status
-- recorder·DXVK·간소화 파일뿐 아니라 그래픽·네트워크·NIC·메모리 전체 확인도 `application:get-launch-context` 안에서 병렬 완료한다. renderer는 이 결과와 최종 DXVK 상태를 적용한 뒤에만 `gameWave.allowStartup()`을 호출하고, 애니메이션 뒤 `loadAll()` 중복 조회는 제거했다. 따라서 GPU helper와 PowerShell 상태 확인이 재생 중 시작되지 않는다. Vulkan 관리 창은 투명하게 주차한 Chromium surface 재사용을 폐기했다. 닫을 때 BrowserWindow를 파괴하고 다음 열기에서 `show:false`로 DOM·두 프레임 렌더를 완성한 후 한 번에 표시하며 fade 경로가 없다. 전체 Node 테스트 173개와 Vite 프로덕션 빌드, 변경 파일 lint가 통과했다.
+- 최신 로그에서 Vulkan 관리 창의 DOM·문서·두 rAF 완료는 반복 열기마다 64~90ms로, 데이터 초기화가 아니라 숨김 rAF가 Windows compositor surface 생성을 보장하지 않는 것이 검은 화면 원인이었다. 새 BrowserWindow를 opacity 0으로 실제 표시하고 `capturePage()`로 완성 surface를 강제 확인한 뒤 300ms fade-in한다. 닫을 때도 300ms fade-out 후 창을 파괴해 fade를 유지하면서 검은 초기 surface 재사용을 차단한다. 앱 시작 준비 약 1.89초 중 약 0.46초는 상태 확인이 프레임 부스트를 먼저 기다린 직렬 구간이었다. 그래픽·네트워크·메모리를 즉시 병렬 실행하고 CPU·NIC만 프레임 부스트 완료 뒤 확인하며 항목별 시간을 시작 로그에 기록한다. 관련 테스트 39개와 Vite 빌드가 통과했다.
+- recorder·DXVK·간소화 파일뿐 아니라 그래픽·네트워크·NIC·메모리 전체 확인도 `application:get-launch-context` 안에서 완료한다. renderer는 이 결과와 최종 DXVK 상태를 적용한 뒤에만 `gameWave.allowStartup()`을 호출하고, 애니메이션 뒤 `loadAll()` 중복 조회는 제거했다.
 - 사용자 지적대로 recorder 초기화를 애니메이션 뒤로 미루는 구조 자체를 폐기했다. renderer가 시작 화면 골격을 그린 뒤 호출하는 `application:get-launch-context`가 `prepareStartupBeforeAnimation()`을 기다리고, 이 함수가 recorder ready·DXVK 캐시/로컬 상태·간소화 파일 준비를 끝낸 다음에만 launch context를 반환한다. App은 기존처럼 launch context를 받은 후 `gameWave.allowStartup()`을 호출하므로 D3D·WGC·Media Foundation 초기화가 재생 전에 완료된다. 애니메이션 완료 IPC는 더 이상 초기화를 시작하지 않고 확정 DXVK 상태만 반환한다.
 - 시작 애니메이션의 실제 종료 계산 오류를 확정했다. 마지막 파동은 `time=4950`, `duration=3500`이라 8450ms에 끝나지만 `onstartupidle()`은 오디오 정지용 6200ms timer에서 호출됐다. 2.25초 남은 마지막 파동 도중 recorder가 시작됐고 01:29 로그의 38.524~39.066 D3D 초기화 0.542초가 사용자가 본 끝부분 정지와 일치했다. `audioStopTimer`는 6200ms에 음원만 멈추고 별도 `startupIdleTimer`는 계산된 `finalStartupWaveEnd`에 후속 renderer 조회를 시작한다. recorder 자체는 위 변경으로 애니메이션 재생 전에 완료한다. Vulkan 창은 opacity 0에서 rAF를 실행해도 Windows compositor surface 표시를 보장하지 못했다. 일반 닫기 시 `hide()`하지 않고 renderer를 투명·입력 무시·focus 불가 상태로 계속 유지하며, 재열기는 보존된 완성 surface를 opacity 1로 즉시 표시해 fade와 검은 프레임 경로를 모두 제거했다.
 - 01:22 실행에서 시작 시 숨김 Vulkan 창 생성은 사라졌고, 사용자가 01:23:07에 직접 연 첫 창도 DOM 71ms·완성 렌더 88ms였다. 그런데 메인 배지는 이벤트·2초 poll 전에 받은 초기 `checking` 상태가 남을 수 있었고, 재열기는 `hide()`로 폐기된 Chromium surface를 다시 그리기 전에 opacity fade를 시작해 검은 배경이 먼저 보였다. DXVK 초기값을 `unavailable`로 바꾸고 시작 완료 IPC가 캐시·로컬 평가 결과를 renderer에 직접 반환한다. 관리 창은 background throttling을 끄고 재표시할 때 opacity 0의 `showInactive()` 상태에서 두 rAF를 기다려 표면을 먼저 복구한 뒤 focus·fade한다. 창의 `loadInstalled()`와 `checkUpdate()`는 두 프레임 뒤 독립 실행하며 generation으로 늦은 로컬 응답의 최신 결과 덮어쓰기를 막는다. 전체 Node 테스트 173개, Electron 구문 검사, Vite 프로덕션 빌드와 lint가 통과했다.
