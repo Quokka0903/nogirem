@@ -19,6 +19,7 @@
 - 커서 휠용 저수준 마우스 hook을 50ms 상태 폴링 스레드에 설치해 모든 마우스 입력이 메시지 처리까지 대기하며 심한 지연을 만들었다. hook을 `GetMessage`로 즉시 응답하는 전용 스레드로 분리하고 callback은 원자 휠 단계만 기록한다. 포그라운드 PID 확인과 크기 적용은 callback에서 무거운 프로세스 조회 없이 처리하며 500개 연속 커서 이벤트가 73ms에 완료됐다. 휠 선택 UI는 별도 기능 행에서 제거하고 `게임 마우스 커서 크기` 행 안의 작은 하위 설정으로 이동했다.
 - `WH_MOUSE_LL`에서 휠 메시지를 소비해도 마비노기의 Raw Input·DirectInput 경로에는 실제 조합이 전달된다. 보조 키 release·press 주입으로 우회하는 방식도 효과가 없고 키 상태만 불안정하게 만들 수 있어 관련 키보드 hook과 입력 주입을 제거했다. Ctrl·Alt+휠 커서 조절은 유지하지만 같은 입력이 게임에도 전달된다.
 - Alt+Enter 방지용 `WH_KEYBOARD_LL` hook이 50ms 상태 polling loop와 같은 스레드에 설치돼 Windows가 모든 키 이벤트의 callback 반환을 기다렸고, Ctrl·Alt를 떼도 key-up이 수초 동안 밀릴 수 있었다. Alt+Enter 판정은 유지하되 키보드 hook을 독립 `GetMessage` 스레드로 분리해 Enter 이외 입력을 즉시 통과시킨다. helper 활성 상태에서 주입 키 이벤트 400개는 678ms로 처리됐으며 helper가 없을 때의 505ms와 비교해 이벤트당 추가 지연은 약 0.43ms였다.
+- 앱과 lockfile 버전을 0.3.14로 올리고 Node 테스트 169개, 네이티브 helper 4종 Release 빌드, Vite 빌드와 Windows x64 NSIS 패키징을 완료했다. 설치본은 97,269,508바이트·SHA-256 `63DA7682…7C54FA`, blockmap은 103,117바이트·`D2E50BF4…738E32`, `latest.yml`은 345바이트·`28003F7B…A269CE`, 터보 키 자산은 291,840바이트·`D9504362…16A857`이다. 설치본·ASAR 버전과 업데이트 메타데이터 및 패키지 내부 helper 무결성이 모두 일치한다.
 
 ## 0.3.13
 

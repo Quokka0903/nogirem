@@ -1,11 +1,12 @@
 # Cursor AI Handoff
 
-Last Updated: 2026-09-16 04:37
+Last Updated: 2026-09-16 09:12
 
 ## Current Objective
-0.3.14 블랙박스 재생 개선과 마비노기 포커스 전용 마우스 커서 크기 기능을 검증한다.
+0.3.14 Windows 설치본을 검증된 자산으로 GitHub에 정식 배포한다.
 
 ## Current Status
+- 앱과 lockfile 버전을 0.3.14로 올리고 Windows x64 NSIS 설치본을 만들었다. Node 테스트 169개, input guard·Radeon·recorder·터보 키 helper Release 빌드와 Vite·electron-builder 패키징이 통과했다. 설치본은 97,269,508바이트·SHA-256 `63DA7682…7C54FA`, blockmap은 103,117바이트·`D2E50BF4…738E32`, `latest.yml`은 345바이트·`28003F7B…A269CE`, 터보 키 자산은 291,840바이트·`D9504362…16A857`이다. 설치본 파일·ASAR 버전은 0.3.14이고 `latest.yml`의 SHA-512·크기가 설치본과 일치하며 패키지 내부 input guard·Radeon·recorder helper도 로컬 빌드와 일치한다. 아직 커밋·태그·GitHub Release 게시 전이다.
 - 사용자가 Ctrl·Alt key-up 지연이 Alt+Enter 방지를 켠 경우에만 재현된다고 확인했다. 원인은 Alt+Enter용 `WH_KEYBOARD_LL` hook이 50ms 상태 polling loop에 설치돼 모든 키 이벤트가 callback 처리까지 기다린 구조였다. Alt+Enter 차단 로직은 유지하고 키보드 hook을 독립 `GetMessage` 스레드로 분리했으며 main 상태 loop에서는 메시지 pump를 제거했다. helper 활성 상태의 주입 키 400개는 678ms, helper 없는 기준은 505ms로 추가 지연이 이벤트당 약 0.43ms였고 수초 key-up 정체는 제거됐다. 전체 169개 테스트와 앱 빌드가 통과했으며 최종 helper는 330,752바이트·SHA-256 `C534E2C1…F841FD`다.
 - 마비노기의 Raw Input·DirectInput 전달을 막으려고 추가한 보조 키 release·press 주입은 효과가 없고 키 상태를 불안정하게 만들 수 있어 사용자의 정정에 따라 관련 키보드 hook과 입력 주입만 제거했다. Ctrl·Alt+휠 커서 크기 조절과 지연 없는 전용 마우스 hook은 유지하며 같은 휠 입력이 게임에도 전달되는 제한이 있다. 최종 helper는 329,216바이트·SHA-256 `229E4A75…D9E37C`다.
 - 커서 휠용 `WH_MOUSE_LL` hook을 helper의 50ms 상태 폴링 스레드에 설치한 탓에 모든 마우스 이벤트가 메시지 처리까지 기다려 옵션을 켜자마자 심한 입력 지연이 발생했다. hook을 `GetMessage` 전용 스레드로 분리해 즉시 응답하고 callback은 원자 휠 단계만 기록하도록 수정했다. 포그라운드 검증은 main loop가 캐시한 게임 PID와 현재 PID를 비교해 callback에서 프로세스 경로를 조회하지 않는다. 500개 연속 커서 이동 이벤트가 73ms에 처리됐고 전체 169개 테스트와 앱 빌드가 통과했다. UI는 별도 큰 행을 제거하고 `게임 마우스 커서 크기` 행 내부의 작은 하위 선택으로 이동했다. 최종 helper는 329,216바이트·SHA-256 `C247E0AF…3AAC06`이다.
@@ -550,6 +551,7 @@ Last Updated: 2026-09-16 04:37
 - REPORT 응답에는 이메일·사용자명·시스템 경로 등 개인정보와 민감한 진단 원문을 기록하지 않는다.
 
 ## Pending Tasks
+1. 0.3.14 배포 커밋을 원격 master에 push하고 `v0.3.14` 태그와 GitHub Release를 만든 뒤 네 자산의 원격 digest·크기를 검증한다.
 1. Alt+Enter 방지를 켠 상태에서 Ctrl·Alt를 길게 누른 뒤 key-up이 즉시 반영되는지와 Alt+Enter 차단 유지를 수동 확인한다.
 2. 마비노기에서 Ctrl·휠과 Alt·휠의 입력 지연 제거와 25% 커서 조절을 확인한다.
 1. 새 helper를 로드한 상태에서 마비노기 Client.exe를 포커스해 input-guard status의 `cursorActive`가 true로 전환되고 `CursorBaseSize`가 선택 비율로 바뀌는지 확인한다.
@@ -768,6 +770,7 @@ Last Updated: 2026-09-16 04:37
 - `vite.config.mjs`: Svelte 렌더러 빌드 설정
 
 ## Recent Changes
+- 앱 버전을 0.3.14로 올리고 전체 테스트·네이티브 빌드·Windows NSIS 패키징 및 로컬 자산 무결성 검증을 완료했다.
 - Alt+Enter 키보드 hook을 상태 polling loop에서 전용 메시지 스레드로 옮겨 Ctrl·Alt를 포함한 일반 키의 key-up 정체를 제거했다.
 - 효과가 없던 Raw Input 차단용 보조 키 해제·복원과 키보드 hook을 제거하고 Ctrl·Alt+휠 커서 조절은 유지했다.
 - 커서 휠 저수준 hook을 전용 메시지 스레드로 분리해 전체 마우스 입력 지연을 제거하고, 휠 선택 UI를 커서 크기 설정의 하위 항목으로 축소했다.
@@ -1608,4 +1611,4 @@ Last Updated: 2026-09-16 04:37
 - 정확 재인코딩의 첫 PCM sample 내부에서 요청 시점 전 frame을 제거해 AAC frame 경계의 최대 약 21ms 선행도 없앴다. 실제 비정렬 시작점 추출은 통과했지만 실행 중 recorder 잠금 때문에 배포용 local bin 갱신은 남아 있다.
 
 ## Next Recommended Step
-개발 앱을 완전히 종료하고 `npm run app:dev`로 재실행한다. Alt+Enter 방지를 켠 상태에서 Ctrl·Alt key-up이 즉시 반영되는지 확인한 뒤 Alt+Enter 차단과 커서 휠 조절을 각각 확인한다.
+0.3.14 배포 변경을 커밋·push하고 같은 커밋에 `v0.3.14` 태그를 만든 뒤 검증한 로컬 네 자산으로 GitHub Release를 게시한다.
