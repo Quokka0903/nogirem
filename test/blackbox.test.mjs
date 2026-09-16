@@ -145,6 +145,14 @@ test("메인 버튼과 전용 관리 창에 블랙박스 제어가 연결된다"
   )
   assert.match(appSource, /removeBlackboxStatusListener/)
   assert.match(styleSource, /\.blackbox-main-link:disabled \{[\s\S]*opacity: 1/)
+  assert.match(
+    styleSource,
+    /\.blackbox-main-controls\.entered \{[\s\S]*animation: blackbox-main-controls-enter 450ms 150ms ease-out both/,
+  )
+  assert.match(
+    styleSource,
+    /@keyframes blackbox-main-controls-enter \{[\s\S]*opacity: 0[\s\S]*opacity: 1/,
+  )
   assert.match(styleSource, /\.blackbox-main-duration \{[\s\S]*font-size: 9px[\s\S]*transform: translateX\(28px\)/)
   assert.match(styleSource, /\.blackbox-main-duration\.active \{[\s\S]*0\.72[\s\S]*font-weight: 650/)
   assert.match(
