@@ -18,6 +18,7 @@
 - Vulkan 관리 창을 fade-out·hide한 직후 범용 `focusPrimaryWindow()`를 호출해 메인 창의 enabled·focusable·taskbar 상태를 다시 쓰고 포커스를 반복 적용하면서 앱 전체가 깜빡였다. 숨김 자식 창은 Windows가 부모 창으로 자연스럽게 포커스를 돌리므로 해당 강제 복구 호출을 제거했다.
 - 최신 0.3.15 소스로 네이티브 helper와 Windows x64 NSIS 설치본을 다시 빌드했다. 설치본·blockmap·`latest.yml`·터보 키 별도 자산 생성과 코드 서명이 완료됐다.
 - Windows Smart App Control 강제 모드(`VerifiedAndReputablePolicyState=1`)에서는 일부 DXVK 버전이 `0xC0E90002` 코드 무결성 오류로 차단될 수 있지만 이전 버전은 정상 실행될 수 있다. 정상 버전까지 막지 않도록 설치·선택·재적용과 기존 파일은 변경하지 않고, Vulkan 관리 창 하단에 오류 발생 시 이전 버전을 선택하라는 안내만 표시한다.
+- 위 수정까지 포함한 0.3.15 Windows x64 NSIS 설치본을 다시 생성했다. 전체 Node 테스트 173개와 네이티브 helper·Vite·코드 서명·패키징이 통과했다.
 
 ## 0.3.14
 

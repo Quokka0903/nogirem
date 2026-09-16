@@ -1,11 +1,12 @@
 # Cursor AI Handoff
 
-Last Updated: 2026-09-16 19:10
+Last Updated: 2026-09-16 20:26
 
 ## Current Objective
 0.3.15 시작 준비 순서와 Vulkan 관리 창 표시 변경을 사용자 환경에서 검증한다.
 
 ## Current Status
+- DXVK 정책 안내 수정까지 포함한 0.3.15 Windows x64 NSIS 설치본을 재생성했다. 남아 있던 elevated input guard·recorder helper는 각 control JSON의 정상 stop 명령으로 종료해 파일 잠금을 해제했다. 전체 Node 테스트 173개와 네이티브 helper 4종·Vite·코드 서명·NSIS 패키징이 통과했다. 최종 설치본은 97,409,784바이트·SHA-256 `3A99FD3B…1F6F74`, blockmap은 103,329바이트·`A2BBA312…693563`, `latest.yml`은 345바이트·`ABAAF4AA…70FCDE`, 터보 키 자산은 291,840바이트·`D9504362…16A857`이다. 배포 커밋·태그·GitHub Release 게시가 다음 단계다.
 - `0xC0E90002`는 Smart App Control 코드 무결성 정책 오류지만 사용자 확인 결과 이전 DXVK 버전은 정상 실행되므로 정책 활성만으로 모든 DXVK를 차단하면 안 된다. HKLM CI Policy의 `VerifiedAndReputablePolicyState` 확인은 유지하되 설치·버전 선택·재적용을 막거나 DLL을 자동 제거하지 않는다. 강제 모드이면 Vulkan 관리 창 하단에 일부 버전이 차단될 수 있고 오류 발생 시 이전 버전을 선택하라는 안내만 표시한다. DXVK 테스트 11개, Electron·DXVK 구문 검사, Vite 빌드와 lint가 통과했다.
 - 최신 0.3.15 소스로 Windows x64 NSIS 패키징을 완료했다. input guard·Radeon·recorder·터보 키 helper와 Vite 앱 빌드, 코드 서명, installer·blockmap 생성이 성공했다. 설치본은 97,361,341바이트·SHA-256 `FA21E987…A1AD8`, blockmap은 103,154바이트·`7B5C9E4A…6B75A`, `latest.yml`은 345바이트·`DDFE257F…E0F37`, 터보 키 자산은 291,840바이트·`D9504362…16A857`이다. 패키징 과정에서 recorder helper 바이너리를 최신 소스로 재빌드했다.
 - Vulkan 관리 창을 fade-out·hide한 직후 호출하던 `focusPrimaryWindow()`가 메인 창 enabled·focusable·taskbar 상태를 재설정하고 focus를 반복 적용해 앱 전체 합성 깜빡임을 유발했다. 숨김 자식 창에서는 Windows가 부모 포커스를 자연스럽게 복원하므로 강제 호출을 제거했다. DXVK 테스트 11개와 Electron 구문 검사·lint가 통과했다.
