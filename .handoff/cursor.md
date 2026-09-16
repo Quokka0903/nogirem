@@ -1,11 +1,12 @@
 # Cursor AI Handoff
 
-Last Updated: 2026-09-16 11:40
+Last Updated: 2026-09-16 11:50
 
 ## Current Objective
 0.3.15 시작 준비 순서와 Vulkan 관리 창 표시 변경을 사용자 환경에서 검증한다.
 
 ## Current Status
+- Vulkan 관리 창은 앱 시작 때 이미 로드한 `dxvkReleasesCache`를 최초 `getStatus()` 응답에 포함한다. 창 HTML이 열릴 때마다 자동 호출하던 `checkUpdate()`를 제거해 재열기마다 셀렉터가 `확인 전`으로 초기화되고 GitHub 확인이 반복되는 경로를 없앴다. 온라인 릴리스 확인은 기존 앱 시작 및 6분 주기 갱신에서만 실행하며 설치 직후 재확인은 유지한다. DXVK 테스트 11개와 Vite 빌드가 통과했다.
 - Vulkan 창의 `capturePage()`가 GPU readback에서 1.9초를 소모한 직접 원인이어서 제거했다. 추가 계측에서 HTML 이미지 decode 0ms·두 프레임 16~17ms, 콘텐츠 준비 69~72ms, show 반환 77~82ms, fade 완료 388~390ms로 앱 내부에는 더 이상 1초 구간이 없었다. HTML의 전용 `content-ready` 신호 전에는 표시하지 않고 모든 단계를 시작 로그에 기록한다. 이후 남은 검은 surface는 불투명 frameless 창의 Windows 합성 경로로 좁혀져, 주변 캐릭터 창과 같은 transparent layered BrowserWindow에서 기존 검은 manager 배경과 내용을 함께 합성하도록 변경했다. fade-in/out은 각각 300ms로 유지한다. 시작 상태 병렬화에서 메모리를 helper 준비 522ms 전에 읽어 이전 `running:false`를 전달한 회귀도 수정했다. 메모리·CPU·NIC는 frame boost 준비 뒤 조회하고 재실행 상태 파일에서 affinity와 memory 모두 `running:true`를 확인했다.
 - recorder·DXVK·간소화 파일뿐 아니라 그래픽·네트워크·NIC·메모리 전체 확인도 `application:get-launch-context` 안에서 완료한다. renderer는 이 결과와 최종 DXVK 상태를 적용한 뒤에만 `gameWave.allowStartup()`을 호출하고, 애니메이션 뒤 `loadAll()` 중복 조회는 제거했다.
 - 사용자 지적대로 recorder 초기화를 애니메이션 뒤로 미루는 구조 자체를 폐기했다. renderer가 시작 화면 골격을 그린 뒤 호출하는 `application:get-launch-context`가 `prepareStartupBeforeAnimation()`을 기다리고, 이 함수가 recorder ready·DXVK 캐시/로컬 상태·간소화 파일 준비를 끝낸 다음에만 launch context를 반환한다. App은 기존처럼 launch context를 받은 후 `gameWave.allowStartup()`을 호출하므로 D3D·WGC·Media Foundation 초기화가 재생 전에 완료된다. 애니메이션 완료 IPC는 더 이상 초기화를 시작하지 않고 확정 DXVK 상태만 반환한다.

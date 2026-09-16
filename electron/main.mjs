@@ -5273,7 +5273,7 @@ function scheduleDxvkRuntimeRefresh() {
 async function getDxvkManagerStatus({ checkLatest = false } = {}) {
   const installed = await getInstalledDxvk(getDxvkDirectory())
   const deployment = await getDxvkDeploymentStatus(installed, await getDxvkTargetPath())
-  let releases = []
+  let releases = dxvkReleasesCache
   let releaseCheckError = null
   if (checkLatest) {
     try {

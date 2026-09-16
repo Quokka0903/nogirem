@@ -303,9 +303,14 @@ test("관리 창의 확인·설치 완료 상태를 메인 화면에 즉시 전�
     mainSource,
     /function prepareStartupBeforeAnimation\(reason\)[\s\S]*openDxvkManager\(false\)/,
   )
-  assert.match(
+  assert.match(managerSource, /contentReady\(\{[\s\S]*void loadInstalled\(\)/)
+  assert.doesNotMatch(
     managerSource,
-    /void loadInstalled\(\)[\s\S]*requestAnimationFrame\(\(\) => \{[\s\S]*void checkUpdate\(\)/,
+    /void loadInstalled\(\)[\s\S]{0,180}void checkUpdate\(\)/,
+  )
+  assert.match(
+    mainSource,
+    /async function getDxvkManagerStatus[\s\S]*let releases = dxvkReleasesCache/,
   )
   assert.match(managerSource, /const generation = statusGeneration[\s\S]*generation === statusGeneration/)
   assert.match(

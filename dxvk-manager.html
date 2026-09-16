@@ -501,11 +501,6 @@
           totalMs: Math.round(framesReadyAt - startedAt),
         })
         void loadInstalled()
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            void checkUpdate()
-          })
-        })
       }
 
       void revealContent()
