@@ -3,6 +3,7 @@
 
   export let onstartupcomplete = () => {}
   export let onstartuphidden = () => {}
+  export let onstartupidle = () => {}
   export let onplaybackstart = () => {}
   export let onstartuplogomaskchange = () => {}
 
@@ -477,6 +478,7 @@
       }, Math.max(0, 2500 - initialTimelineElapsed))
       audioStopTimer = window.setTimeout(() => {
         nextAudio.pause()
+        onstartupidle()
       }, Math.max(0, 6200 - initialTimelineElapsed))
     }
 
@@ -555,6 +557,7 @@
       onstartuplogomaskchange(false)
     }
     onstartuphidden()
+    onstartupidle()
     requestDraw()
   }
 

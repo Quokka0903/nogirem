@@ -7250,7 +7250,7 @@ function createWindow() {
       clearTimeout(deferredStartupInitializationTimer)
       deferredStartupInitializationTimer = setTimeout(() => {
         void beginDeferredStartupInitialization("렌더러 완료 신호 대기 시간 초과")
-      }, 6000)
+      }, 10000)
     })
     .catch(error => showWindowLoadError(window, error))
     .catch(error => console.error("오류 화면 로드 실패", error))

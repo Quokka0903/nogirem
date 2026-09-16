@@ -747,11 +747,6 @@
     displayedGuideText = guideTextForStatus(statusText)
     statusTransitionPhase = "done"
     startupIdentityPhase = "brand"
-    if (!deferredStartupStarted) {
-      deferredStartupStarted = true
-      void window.nogirem.completeStartupAnimation().catch(() => {})
-      loadDeferredStartupData()
-    }
     leftTopContentEntered = false
     creatorNavigationReady = false
     interfaceVisible = true
@@ -764,6 +759,14 @@
     startupIdentityTimer = window.setTimeout(() => {
       startupIdentityPhase = "transition"
     }, 250)
+  }
+
+  function handleStartupIdle() {
+    if (!deferredStartupStarted) {
+      deferredStartupStarted = true
+      void window.nogirem.completeStartupAnimation().catch(() => {})
+      loadDeferredStartupData()
+    }
   }
 
   function finishStartupIdentityTransition() {
@@ -3193,6 +3196,7 @@
   onplaybackstart={handleStartupPlaybackStart}
   onstartupcomplete={handleStartupComplete}
   onstartuphidden={handleStartupHidden}
+  onstartupidle={handleStartupIdle}
   onstartuplogomaskchange={active => startupLogoMaskActive = active}
 />
 

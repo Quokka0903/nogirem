@@ -340,7 +340,11 @@ test("시작 애니메이션은 오디오 정체와 분리하고 무거운 초�
   )
   assert.match(
     applicationView,
-    /function handleStartupHidden\(\)[\s\S]*completeStartupAnimation\(\)[\s\S]*loadDeferredStartupData\(\)/,
+    /function handleStartupIdle\(\)[\s\S]*completeStartupAnimation\(\)[\s\S]*loadDeferredStartupData\(\)/,
+  )
+  assert.match(
+    gameWave,
+    /audioStopTimer = window\.setTimeout\(\(\) => \{[\s\S]*nextAudio\.pause\(\)[\s\S]*onstartupidle\(\)/,
   )
   assert.match(electronPreload, /completeStartupAnimation/)
   assert.match(
@@ -353,7 +357,7 @@ test("시작 애니메이션은 오디오 정체와 분리하고 무거운 초�
   )
   assert.match(
     electronMain,
-    /beginDeferredStartupInitialization\("렌더러 완료 신호 대기 시간 초과"\)[\s\S]*6000/,
+    /beginDeferredStartupInitialization\("렌더러 완료 신호 대기 시간 초과"\)[\s\S]*10000/,
   )
 })
 
