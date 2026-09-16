@@ -71,9 +71,7 @@
   }
 
   function currentTimelineElapsed() {
-    return audio && !audio.paused
-      ? Math.max(0, (audio.currentTime - timelineCueSeconds) * 1000)
-      : Date.now() - startedAt
+    return performance.now() - startedAt
   }
 
   function createImageCache() {
@@ -160,7 +158,7 @@
     if (!ambientEnabled || !pageVisible) return
     const boostTransitionPending = backgroundTransition?.targetDark === false
     if (mode !== "background" || (darkBackground && !boostTransitionPending)) return
-    const startupRemaining = Math.max(0, ambientBlockedUntil - Date.now())
+    const startupRemaining = Math.max(0, ambientBlockedUntil - performance.now())
     const scheduledDelay = startupRemaining > 0
       ? startupRemaining + delayMs
       : delayMs
@@ -310,7 +308,7 @@
     const audioPlaying = Boolean(audio && !audio.paused)
     if (audioPlaying) {
       const fadeOut = track.at(-1) - timelineElapsed + 1000
-      const fadeIn = (Date.now() - playbackVolumeStartedAt) / 2000
+      const fadeIn = (performance.now() - playbackVolumeStartedAt) / 2000
       audio.volume = Math.max(0, Math.min(1, fadeIn, fadeOut / 2000)) * 0.2
     }
 
@@ -464,8 +462,8 @@
       const initialTimelineElapsed = startupMuted
         ? (startupPlaybackCueSeconds - timelineCueSeconds) * 1000
         : Math.max(0, (nextAudio.currentTime - timelineCueSeconds) * 1000)
-      startedAt = Date.now() - initialTimelineElapsed
-      playbackVolumeStartedAt = Date.now()
+      startedAt = performance.now() - initialTimelineElapsed
+      playbackVolumeStartedAt = performance.now()
       const finalStartupWaveEnd = Math.max(
         6200,
         ...circles.map(circle => circle.time + (circle.duration ?? circle.size * 8)),

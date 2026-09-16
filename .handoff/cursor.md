@@ -1,12 +1,12 @@
 # Cursor AI Handoff
 
-Last Updated: 2026-09-16 09:41
+Last Updated: 2026-09-16 09:51
 
 ## Current Objective
-앱 시작 애니메이션이 초기화 부하와 겹쳐 멈췄다가 재생되는 원인을 제거한다.
+0.3.15 시작 애니메이션 부하 분리 변경을 사용자 환경에서 검증한다.
 
 ## Current Status
-- 0.3.14 실제 시작 로그와 시작 순서를 대조했다. 렌더러 문서 로드와 창 표시 직후 `GameWave.allowStartup()`이 애니메이션을 시작하면서 동시에 `loadAll()`이 그래픽·네트워크·NIC·메모리 전체 상태 조회를 실행하고, main은 같은 시점에 숨김 Vulkan BrowserWindow를 새로 생성하며 블랙박스 helper 초기화도 계속한다. 00:35:08 실행은 창 표시 00:35:13.007 뒤 Vulkan 사전 로드가 0.46초 겹쳤고 블랙박스 초기화는 00:35:17.650까지 약 4.64초 겹쳤다. 다음 실행도 창 표시 후 Vulkan 0.15초와 블랙박스 1.16초가 겹쳤다. `GameWave`는 오디오가 재생 상태이면 시각 진행 기준으로 단조 시계가 아니라 `audio.currentTime`을 사용하므로 오디오 decode·출력이 초기 부하로 정체되면 rAF가 실행돼도 시각 타임라인이 멈추고, 부하가 끝난 뒤 다시 움직이는 현상이 직접 발생한다. 아직 코드는 수정하지 않았다.
+- 앱과 lockfile 버전을 0.3.15로 올리고 시작 애니메이션 부하를 분리했다. `GameWave`는 최초 음원 cue만 반영한 뒤 `performance.now()` 단조 시계로 화면을 진행해 오디오 decode·출력이 정체돼도 파동이 멈추지 않는다. 렌더러의 공지·REPORT·크리에이터·시작 작업·터보 키·입력·블랙박스 설정과 전체 그래픽·네트워크·NIC·메모리 조회는 시작 화면이 완전히 숨은 뒤 실행한다. 렌더러 완료 IPC를 받은 main이 블랙박스 자동 시작, DXVK 캐시·최신 조회, 주변 캐릭터 파일 설치와 숨김 Vulkan 창 사전 로드를 시작한다. 렌더러 오류 시 기능이 영구 누락되지 않도록 문서 로드 6초 후 fallback이 같은 단일 실행 함수를 호출한다. 전체 Node 테스트 173개, Electron 구문 검사, Vite 프로덕션 빌드와 변경 파일 lint가 통과했다.
 - 수정 커밋 `1fe48d1`을 원격 master에 push하고 `v0.3.14` 태그를 같은 커밋으로 강제 이동한 뒤 기존 [GitHub Release](https://github.com/rubystarashe/nogirem/releases/tag/v0.3.14)의 네 자산을 대체했다. 태그와 원격 master SHA가 일치하고 Release는 정식 공개 상태다. 원격 자산의 크기·SHA-256 digest가 로컬 검증값과 모두 일치하며 네 공개 URL이 HTTP 200을 반환한다. Release 본문은 UTF-8로 복구·검증했고 기존 0.3.14 사용자의 수동 재설치 안내를 추가했다.
 - 0.3.13 진단에서 확인된 `spawn powershell.exe ENOENT`를 수정했다. 공통 실행기는 `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`를 우선 사용하고 실제 파일이 없을 때만 PATH로 폴백한다. PATH를 비운 별도 Node 프로세스에서도 실제 PowerShell 실행이 성공했다. 메모리 helper가 기본 1초마다 PowerShell `Get-Process`로 게임을 찾던 잔여 경로도 affinity의 Win32 프로세스 스냅샷과 실행 경로 조회로 교체했다. 진단 UUID 전용 REPORT 답변을 추가했다. 전체 Node 테스트 172개와 네이티브 helper 4종·Vite·NSIS 패키징이 통과했다. 대체 설치본은 97,295,263바이트·SHA-256 `BF09BB4A…530E5`, blockmap은 103,236바이트·`5EFB48B5…A154`, `latest.yml`은 345바이트·`64054C1D…4825`, 터보 키 자산은 291,840바이트·`D9504362…16A857`이다. 설치본·ASAR 버전은 0.3.14이고 ASAR에 고정 경로 실행기·네이티브 메모리 감지·REPORT 답변이 포함되며 업데이트 SHA-512·크기와 패키지 내부 helper 무결성이 일치한다.
 - 배포 커밋 `925607d`를 원격 master에 push하고 같은 커밋에 `v0.3.14` 태그를 생성해 [GitHub Release](https://github.com/rubystarashe/nogirem/releases/tag/v0.3.14)로 공개했다. Release는 draft·prerelease가 아니며 installer·blockmap·`latest.yml`·터보 키 helper 네 자산이 모두 uploaded 상태다. 원격 digest·크기가 로컬 검증값과 전부 일치하고 네 공개 다운로드 URL도 HTTP 200을 반환한다.
@@ -555,7 +555,7 @@ Last Updated: 2026-09-16 09:41
 - REPORT 응답에는 이메일·사용자명·시스템 경로 등 개인정보와 민감한 진단 원문을 기록하지 않는다.
 
 ## Pending Tasks
-1. 시작 애니메이션 시각을 `audio.currentTime`에서 `performance.now()` 기반 단조 시계로 분리하고, `loadAll()`·Vulkan 숨김 창 사전 로드를 애니메이션 종료 뒤로 미룬다. 블랙박스 자동 시작은 녹화 누락과 부드러운 표시 사이의 정책을 정해 애니메이션 전 완료 대기 또는 종료 후 시작 중 하나로 직렬화한다.
+1. 0.3.15 개발본에서 시작 애니메이션이 일정한 속도로 재생되고 화면 종료 뒤 `지연 초기화 시작`·블랙박스·Vulkan 순서가 로그에 남는지 수동 확인한다.
 1. PATH에서 Windows PowerShell 폴더를 제거한 문제 환경에 대체 0.3.14를 설치해 시작 트레이 실행과 프레임 부스트 중 PowerShell 반복 표시 제거를 확인한다.
 1. Alt+Enter 방지를 켠 상태에서 Ctrl·Alt를 길게 누른 뒤 key-up이 즉시 반영되는지와 Alt+Enter 차단 유지를 수동 확인한다.
 2. 마비노기에서 Ctrl·휠과 Alt·휠의 입력 지연 제거와 25% 커서 조절을 확인한다.
@@ -641,7 +641,7 @@ Last Updated: 2026-09-16 09:41
 20. 마비노기 전면 창에서 `2 누름 → 3 누름 → 일반 키 4 누름·해제 → 3 해제 → 2 해제` 순서로 실제 입력 전환을 확인한다.
 
 ## Known Issues
-- 시작 애니메이션이 전체 상태 조회·숨김 Vulkan 렌더러 생성·블랙박스 helper 초기화와 동시에 실행되고 오디오 재생 시각을 화면 진행 기준으로 사용해, 초기 CPU·GPU·오디오 부하가 애니메이션 정지로 직접 보일 수 있다.
+- 블랙박스 자동 시작을 시작 화면 종료 뒤로 옮겨 앱 실행 직후 녹화 시작이 기존보다 약 3초 늦어진다. 애니메이션 부드러움과 초기 녹화 공백 사이의 선택이며 실제 사용자 환경에서 확인이 필요하다.
 - 같은 버전의 0.3.14 Release 자산을 대치하므로 기존 0.3.14 설치자는 자동 업데이트가 다시 실행되지 않아 수정 설치본을 수동 재설치해야 한다. 0.3.13 이하는 일반 0.3.14 업데이트로 수정본을 받는다.
 - Windows 접근성 커서의 절대 최대값은 `CursorBaseSize=256`이므로 기본 크기 32 기준 800%보다 크게 설정할 수 없다.
 - 보호된 게임 프로세스는 일반 권한 진단에서 실행 경로가 비어 보일 수 있다. helper는 전체 경로 조회 실패 시 파일명 `Client.exe`로 폴백하지만, 실제 게임 포커스에서 동작 확인은 남아 있다.
@@ -777,6 +777,7 @@ Last Updated: 2026-09-16 09:41
 - `vite.config.mjs`: Svelte 렌더러 빌드 설정
 
 ## Recent Changes
+- 0.3.15에서 시작 애니메이션을 `performance.now()` 시계로 분리하고 설정·전체 상태 조회 및 main의 블랙박스·DXVK·Vulkan 사전 로드를 시작 화면 종료 뒤로 직렬화했다. 렌더러 실패용 6초 fallback과 회귀 테스트를 추가했다.
 - 실제 0.3.14 시작 로그와 렌더러 코드를 대조해 애니메이션과 전체 상태 조회·Vulkan 사전 로드·블랙박스 초기화의 동시 실행 및 `audio.currentTime` 종속을 시작 정체 원인으로 확인했다.
 - 원격 master와 v0.3.14 태그를 수정 커밋 `1fe48d1`로 맞추고 기존 Release 네 자산을 검증된 대체본으로 교체했다. Release 본문에 같은 버전 수동 재설치 안내를 추가했다.
 - 공통 PowerShell 실행기를 시스템 고정 경로 우선으로 변경하고 메모리 helper의 1초 주기 PowerShell 게임 감지를 네이티브 Win32 조회로 교체했다. 진단 REPORT 답변과 PATH 제거 회귀 테스트를 추가하고 0.3.14 대체 설치본을 검증했다.
@@ -1622,4 +1623,4 @@ Last Updated: 2026-09-16 09:41
 - 정확 재인코딩의 첫 PCM sample 내부에서 요청 시점 전 frame을 제거해 AAC frame 경계의 최대 약 21ms 선행도 없앴다. 실제 비정렬 시작점 추출은 통과했지만 실행 중 recorder 잠금 때문에 배포용 local bin 갱신은 남아 있다.
 
 ## Next Recommended Step
-시작 애니메이션의 단조 시계 분리와 비필수 초기화 직렬화 방식을 확정한 뒤 시작 단계별 rAF 지연 로그를 추가해 수정 전후를 측정한다.
+`npm run app:dev`로 0.3.15를 실행해 애니메이션과 시작 로그 순서를 확인하고, 문제가 없으면 패키징·배포한다.

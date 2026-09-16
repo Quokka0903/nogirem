@@ -219,6 +219,7 @@
   let settingsVisible = false
   let startupDataReady = false
   let startupAnimationFinished = false
+  let deferredStartupStarted = false
   let startupLogoMaskActive = false
   let interfaceVisible = false
   let documentVisible = true
@@ -746,6 +747,11 @@
     displayedGuideText = guideTextForStatus(statusText)
     statusTransitionPhase = "done"
     startupIdentityPhase = "brand"
+    if (!deferredStartupStarted) {
+      deferredStartupStarted = true
+      void window.nogirem.completeStartupAnimation().catch(() => {})
+      loadDeferredStartupData()
+    }
     leftTopContentEntered = false
     creatorNavigationReady = false
     interfaceVisible = true
@@ -1822,40 +1828,7 @@
     void window.nogirem.checkUpdate().catch(() => {})
   }
 
-  onMount(() => {
-    document.addEventListener("visibilitychange", syncPageVisibility)
-    window.addEventListener("keydown", handleApplicationKeydown, true)
-    const removeGraphicsStatusListener = window.nogirem.onGraphicsStatusChanged(status => {
-      updateService("graphics", { loading: false, data: status, error: null })
-    })
-    const removeDxvkStatusListener = window.nogirem.onDxvkStatusChanged(status => {
-      updateService("affinity", {
-        data: {
-          ...services.affinity.data,
-          dxvk: resolveDxvkStatusUpdate(services.affinity.data?.dxvk, status),
-        },
-      })
-    })
-    const removeBlackboxStatusListener = window.nogirem.onBlackboxStatusChanged(
-      applyBlackboxRuntimeState,
-    )
-    const removeVisualActivityListener = window.nogirem.onVisualActivityChanged(
-      setWindowVisualActivity,
-    )
-    const removeUpdateStateListener = window.nogirem.onUpdateStateChanged(state => {
-      applicationUpdateState = state
-    })
-    const removeNoticeListener = window.nogirem.onNoticeAvailable(showApplicationNotice)
-    const removeReportResponseListener = window.nogirem.onReportResponsesAvailable(
-      showApplicationReportResponses,
-    )
-    syncPageVisibility()
-    void window.nogirem.getVisualActivity().then(setWindowVisualActivity)
-    void window.nogirem.getUpdateState()
-      .then(state => {
-        applicationUpdateState = state
-      })
-      .catch(() => {})
+  function loadDeferredStartupData() {
     void window.nogirem.getNotice()
       .then(showApplicationNotice)
       .catch(() => {})
@@ -1915,6 +1888,43 @@
       .finally(() => {
         blackboxSettingLoaded = true
       })
+    void loadAll()
+  }
+
+  onMount(() => {
+    document.addEventListener("visibilitychange", syncPageVisibility)
+    window.addEventListener("keydown", handleApplicationKeydown, true)
+    const removeGraphicsStatusListener = window.nogirem.onGraphicsStatusChanged(status => {
+      updateService("graphics", { loading: false, data: status, error: null })
+    })
+    const removeDxvkStatusListener = window.nogirem.onDxvkStatusChanged(status => {
+      updateService("affinity", {
+        data: {
+          ...services.affinity.data,
+          dxvk: resolveDxvkStatusUpdate(services.affinity.data?.dxvk, status),
+        },
+      })
+    })
+    const removeBlackboxStatusListener = window.nogirem.onBlackboxStatusChanged(
+      applyBlackboxRuntimeState,
+    )
+    const removeVisualActivityListener = window.nogirem.onVisualActivityChanged(
+      setWindowVisualActivity,
+    )
+    const removeUpdateStateListener = window.nogirem.onUpdateStateChanged(state => {
+      applicationUpdateState = state
+    })
+    const removeNoticeListener = window.nogirem.onNoticeAvailable(showApplicationNotice)
+    const removeReportResponseListener = window.nogirem.onReportResponsesAvailable(
+      showApplicationReportResponses,
+    )
+    syncPageVisibility()
+    void window.nogirem.getVisualActivity().then(setWindowVisualActivity)
+    void window.nogirem.getUpdateState()
+      .then(state => {
+        applicationUpdateState = state
+      })
+      .catch(() => {})
     void window.nogirem.getLaunchContext()
       .catch(() => ({ startupTray: false, startupMusicMuted: false }))
       .then(launchContext => {
@@ -1929,7 +1939,6 @@
           gameWave?.allowStartup()
           finishStartupWhenReady()
         }
-        void loadAll()
       })
     const removeCloseListener = window.nogirem.onCloseRequested(() => {
       closeActionPending = false

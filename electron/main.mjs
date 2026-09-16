@@ -180,6 +180,9 @@ let primaryWindowSkippedFromTaskbar = false
 let primaryWindowRevealFrameTimer = null
 let primaryWindowRevealWatchdogTimer = null
 let primaryWindowRevealStarted = false
+let deferredStartupInitializationTimer = null
+let deferredStartupInitializationPromise = null
+let mabinogiPathInitializationPromise = Promise.resolve()
 let focusRequestMonitor = null
 let focusRequestReading = false
 let lastFocusRequestAt = 0
@@ -5625,6 +5628,13 @@ function registerIpc() {
       beginPrimaryWindowReveal()
     }
   })
+  ipcMain.handle("application:complete-startup-animation", event => {
+    if (BrowserWindow.fromWebContents(event.sender) !== primaryWindow) {
+      throw new Error("허용되지 않은 시작 완료 요청입니다")
+    }
+    void beginDeferredStartupInitialization("렌더러 애니메이션 완료")
+    return true
+  })
   ipcMain.handle("application:get-launch-context", async event => {
     if (BrowserWindow.fromWebContents(event.sender) !== primaryWindow) {
       throw new Error("허용되지 않은 실행 상태 요청입니다")
@@ -6854,6 +6864,45 @@ function beginPrimaryWindowReveal() {
   revealFrame()
 }
 
+function beginDeferredStartupInitialization(reason) {
+  clearTimeout(deferredStartupInitializationTimer)
+  deferredStartupInitializationTimer = null
+  if (deferredStartupInitializationPromise) return deferredStartupInitializationPromise
+  writeStartupLog(`지연 초기화 시작 (${reason})`)
+  deferredStartupInitializationPromise = (async () => {
+    await mabinogiPathInitializationPromise
+    const blackboxInitialization = ensureBlackboxStarted()
+      .catch(error => console.error("블랙박스 녹화 자동 실행 실패", error))
+      .then(() => {
+        writeStartupLog("블랙박스 녹화 초기화 처리 종료")
+      })
+    const backgroundInitialization = (async () => {
+      await loadCachedDxvkReleases()
+        .catch(error => console.error("DXVK 릴리스 캐시 로드 실패", error))
+      await loadCachedDxvkRuntimeStatus().catch(error => {
+        dxvkRuntimeStatus = {
+          state: "checking",
+          latestVersion: null,
+          error: serializeError(error),
+        }
+      })
+      if (
+        primaryWindow
+        && !primaryWindow.isDestroyed()
+        && !applicationExitInProgress
+      ) {
+        openDxvkManager(false)
+      }
+      void refreshDxvkRuntimeStatus().finally(scheduleDxvkRuntimeRefresh)
+      await installCharacterSimplificationFile()
+        .catch(error => console.error("주변 캐릭터 간소화 파일 설치 실패", error))
+    })()
+    await Promise.all([blackboxInitialization, backgroundInitialization])
+    writeStartupLog("지연 초기화 완료")
+  })()
+  return deferredStartupInitializationPromise
+}
+
 function internalWindows() {
   return [
     characterGuideWindow,
@@ -7170,12 +7219,14 @@ function createWindow() {
     clearTimeout(primaryVisualActivityTimer)
     clearTimeout(primaryWindowRevealFrameTimer)
     clearTimeout(primaryWindowRevealWatchdogTimer)
+    clearTimeout(deferredStartupInitializationTimer)
     primaryWindowFocusTimer = null
     primaryWindowTrayRestoreTimer = null
     primaryWindowDiagnosticsTimer = null
     primaryVisualActivityTimer = null
     primaryWindowRevealFrameTimer = null
     primaryWindowRevealWatchdogTimer = null
+    deferredStartupInitializationTimer = null
     primaryRendererRecoveryResetTimer = null
     primaryRendererRecoveryMode = false
     primaryRendererRecoveryInProgress = false
@@ -7196,15 +7247,10 @@ function createWindow() {
         primaryWindowSkippedFromTaskbar = true
       }
       if (primaryWindowFocusPending) focusPrimaryWindow()
-      setTimeout(() => {
-        if (
-          primaryWindow === window
-          && !window.isDestroyed()
-          && !applicationExitInProgress
-        ) {
-          openDxvkManager(false)
-        }
-      }, 0)
+      clearTimeout(deferredStartupInitializationTimer)
+      deferredStartupInitializationTimer = setTimeout(() => {
+        void beginDeferredStartupInitialization("렌더러 완료 신호 대기 시간 초과")
+      }, 6000)
     })
     .catch(error => showWindowLoadError(window, error))
     .catch(error => console.error("오류 화면 로드 실패", error))
@@ -7236,39 +7282,17 @@ async function startApplication() {
   }).then(() => {
     writeStartupLog("터보 키 초기화 처리 종료")
   })
-  const mabinogiPathInitialization = loadMabinogiExecutablePath()
+  mabinogiPathInitializationPromise = loadMabinogiExecutablePath()
     .catch(error => console.error("마비노기 경로 초기화 실패", error))
     .then(() => {
       writeStartupLog("마비노기 경로 초기화 처리 종료")
     })
-  void mabinogiPathInitialization
-    .then(() => ensureBlackboxStarted())
-    .catch(error => console.error("블랙박스 녹화 자동 실행 실패", error))
-    .then(() => {
-      writeStartupLog("블랙박스 녹화 초기화 처리 종료")
-    })
-  void mabinogiPathInitialization
+  void mabinogiPathInitializationPromise
     .then(() => ensureInputGuardStarted())
     .catch(error => console.error("마비노기 입력 기능 자동 실행 실패", error))
     .then(() => {
       writeStartupLog("마비노기 입력 기능 초기화 처리 종료")
     })
-  void (async () => {
-    await mabinogiPathInitialization
-    await loadCachedDxvkReleases()
-      .catch(error => console.error("DXVK 릴리스 캐시 로드 실패", error))
-    await loadCachedDxvkRuntimeStatus().catch(error => {
-      dxvkRuntimeStatus = {
-        state: "checking",
-        latestVersion: null,
-        error: serializeError(error),
-      }
-    })
-    void refreshDxvkRuntimeStatus().finally(scheduleDxvkRuntimeRefresh)
-    await installCharacterSimplificationFile()
-      .catch(error => console.error("주변 캐릭터 간소화 파일 설치 실패", error))
-    writeStartupLog("백그라운드 초기화 완료")
-  })()
   if (app.isPackaged) {
     applicationUpdateStartupTimer = setTimeout(() => {
       applicationUpdateStartupTimer = null
@@ -7304,6 +7328,8 @@ async function startApplication() {
     primaryRendererRecoveryResetTimer = null
     clearTimeout(primaryWindowRevealWatchdogTimer)
     primaryWindowRevealWatchdogTimer = null
+    clearTimeout(deferredStartupInitializationTimer)
+    deferredStartupInitializationTimer = null
     clearTimeout(dxvkRuntimeRefreshTimer)
     dxvkRuntimeRefreshTimer = null
     clearInterval(focusRequestMonitor)

@@ -329,6 +329,34 @@ test("시작 이미지와 음악이 실패하거나 지연되어도 시작 애�
   )
 })
 
+test("시작 애니메이션은 오디오 정체와 분리하고 무거운 초기화를 종료 뒤 시작한다", () => {
+  assert.match(
+    gameWave,
+    /function currentTimelineElapsed\(\) \{[\s\S]*performance\.now\(\) - startedAt/,
+  )
+  assert.doesNotMatch(
+    gameWave,
+    /function currentTimelineElapsed\(\) \{[\s\S]{0,160}audio\.currentTime/,
+  )
+  assert.match(
+    applicationView,
+    /function handleStartupHidden\(\)[\s\S]*completeStartupAnimation\(\)[\s\S]*loadDeferredStartupData\(\)/,
+  )
+  assert.match(electronPreload, /completeStartupAnimation/)
+  assert.match(
+    electronMain,
+    /application:complete-startup-animation[\s\S]*beginDeferredStartupInitialization\("렌더러 애니메이션 완료"\)/,
+  )
+  assert.match(
+    electronMain,
+    /function beginDeferredStartupInitialization\(reason\)[\s\S]*ensureBlackboxStarted\(\)[\s\S]*openDxvkManager\(false\)/,
+  )
+  assert.match(
+    electronMain,
+    /beginDeferredStartupInitialization\("렌더러 완료 신호 대기 시간 초과"\)[\s\S]*6000/,
+  )
+})
+
 test("고급 기능에서 시작 음악을 음소거하고 다음 실행에도 유지한다", () => {
   assert.match(
     electronMain,

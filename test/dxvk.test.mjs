@@ -285,7 +285,7 @@ test("관리 창의 확인·설치 완료 상태를 메인 화면에 즉시 전�
   )
   assert.match(
     mainSource,
-    /렌더러 문서 로드 완료[\s\S]*setTimeout\(\(\) => \{[\s\S]*openDxvkManager\(false\)/,
+    /function beginDeferredStartupInitialization\(reason\)[\s\S]*openDxvkManager\(false\)/,
   )
   assert.match(managerSource, /void loadInstalled\(\)\.then\(checkUpdate\)/)
   assert.match(

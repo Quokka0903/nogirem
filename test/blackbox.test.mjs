@@ -663,7 +663,11 @@ test("고정 시점 블랙박스 추출 편집 창과 구간 remux가 연결된�
   assert.match(nativeSource, /WaitForSingleObject\(instanceMutex, 10000\)/)
   assert.match(mainSource, /waitForBlackboxStatus\([\s\S]*child\.exitCode !== null,[\s\S]*15000,/)
   assert.match(mainSource, /for \(let attempt = 0; attempt < 3; attempt \+= 1\)[\s\S]*launchBlackboxHelper\(setting\)/)
-  assert.match(mainSource, /const mabinogiPathInitialization = loadMabinogiExecutablePath\(\)[\s\S]*\.then\(\(\) => ensureBlackboxStarted\(\)\)/)
+  assert.match(mainSource, /mabinogiPathInitializationPromise = loadMabinogiExecutablePath\(\)/)
+  assert.match(
+    mainSource,
+    /function beginDeferredStartupInitialization\(reason\)[\s\S]*await mabinogiPathInitializationPromise[\s\S]*ensureBlackboxStarted\(\)/,
+  )
   assert.match(mainSource, /let blackboxStorageSummaryPromisePath = ""/)
   assert.match(mainSource, /blackboxStorageSummaryPromisePath === summaryKey/)
   assert.match(mainSource, /const fallbackStatus = processRunning[\s\S]*blackboxLastKnownStorageSummary/)

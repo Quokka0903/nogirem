@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld("nogirem", {
     return () => ipcRenderer.removeListener("application:close-requested", listener)
   },
   beginStartupReveal: () => ipcRenderer.invoke("application:begin-startup-reveal"),
+  completeStartupAnimation: () => ipcRenderer.invoke("application:complete-startup-animation"),
   getLaunchContext: () => ipcRenderer.invoke("application:get-launch-context"),
   setStartupMusicSetting: muted => {
     return ipcRenderer.invoke("application:set-startup-music-setting", muted)
