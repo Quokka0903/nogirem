@@ -6420,7 +6420,6 @@ function openDxvkManager(reveal = true) {
       revealed = false
       revealRequested = false
       closing = false
-      focusPrimaryWindow()
     })
   })
   window.on("closed", () => {

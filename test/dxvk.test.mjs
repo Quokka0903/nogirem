@@ -330,6 +330,10 @@ test("관리 창의 확인·설치 완료 상태를 메인 화면에 즉시 전�
     /window\.on\("close"[\s\S]*event\.preventDefault\(\)[\s\S]*closing = true[\s\S]*animateOpacity\(window\.getOpacity\(\), 0, 300[\s\S]*window\.hide\(\)[\s\S]*revealed = false[\s\S]*closing = false/,
   )
   assert.doesNotMatch(
+    dxvkManagerWindowSource,
+    /window\.on\("close"[\s\S]{0,900}window\.hide\(\)[\s\S]{0,300}focusPrimaryWindow\(\)/,
+  )
+  assert.doesNotMatch(
     managerSource,
     /closeButton\.addEventListener\("click"[\s\S]{0,100}closeButton\.disabled = true/,
   )
