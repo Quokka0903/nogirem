@@ -1,11 +1,12 @@
 # Cursor AI Handoff
 
-Last Updated: 2026-09-16 12:30
+Last Updated: 2026-09-16 14:26
 
 ## Current Objective
 0.3.15 시작 준비 순서와 Vulkan 관리 창 표시 변경을 사용자 환경에서 검증한다.
 
 ## Current Status
+- 최신 0.3.15 소스로 Windows x64 NSIS 패키징을 완료했다. input guard·Radeon·recorder·터보 키 helper와 Vite 앱 빌드, 코드 서명, installer·blockmap 생성이 성공했다. 설치본은 97,361,341바이트·SHA-256 `FA21E987…A1AD8`, blockmap은 103,154바이트·`7B5C9E4A…6B75A`, `latest.yml`은 345바이트·`DDFE257F…E0F37`, 터보 키 자산은 291,840바이트·`D9504362…16A857`이다. 패키징 과정에서 recorder helper 바이너리를 최신 소스로 재빌드했다.
 - Vulkan 관리 창을 fade-out·hide한 직후 호출하던 `focusPrimaryWindow()`가 메인 창 enabled·focusable·taskbar 상태를 재설정하고 focus를 반복 적용해 앱 전체 합성 깜빡임을 유발했다. 숨김 자식 창에서는 Windows가 부모 포커스를 자연스럽게 복원하므로 강제 호출을 제거했다. DXVK 테스트 11개와 Electron 구문 검사·lint가 통과했다.
 - 사용자 요청에 따라 Vulkan 관리 창을 앱 준비 중 `openDxvkManager(false)`로 숨김 사전 로드한다. 캐시·설치 상태 렌더의 `content-ready` Promise까지 기다린 후 launch context를 반환하므로 애니메이션 중 보조 renderer 초기화가 겹치지 않고 클릭 시 준비된 창을 show·fade-in한다. 메인 창 fade-in이 첫 canvas draw보다 먼저 시작되던 순서도 수정했다. 배경·로고 이미지를 모두 기다리고 첫 draw와 두 rAF 이후에만 `onplaybackstart()`를 보내며 로고 실패 시에도 시작 가능한 fallback을 둔다. 시작·DXVK 테스트 39개, Electron 구문 검사, Vite 빌드와 lint가 통과했다.
 - 블랙박스 renderer 설정 조회도 시작 전 단계로 이동했다. `prepareStartupBeforeAnimation()`이 recorder를 준비한 뒤 `getBlackboxSetting()`을 실행해 launch context에 포함하고, App은 상태 적용과 `blackboxSettingLoaded = true`를 완료한 다음에만 `gameWave.allowStartup()`을 호출한다. 애니메이션 종료 후 `loadDeferredStartupData()`의 중복 조회는 제거했으며 조회 실패는 `null`로 처리해 앱 시작을 막지 않는다. 시작·블랙박스 테스트 34개와 Vite 빌드가 통과했다.
