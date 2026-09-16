@@ -17,6 +17,7 @@
 - 앱 시작 준비 단계에서 Vulkan 관리 BrowserWindow를 `show: false`로 만들고 캐시·설치 상태가 DOM에 반영된 `content-ready`까지 기다린다. 사용자가 관리 창을 열 때는 준비된 창을 `show()`하고 fade-in만 수행한다. 메인 창은 시작 배경과 로고 이미지가 모두 준비된 뒤 첫 canvas draw와 두 번의 animation frame을 마쳐야 fade-in 신호를 보내므로, 빈 canvas가 먼저 나타나고 로고가 도중에 팍 등장하지 않는다.
 - Vulkan 관리 창을 fade-out·hide한 직후 범용 `focusPrimaryWindow()`를 호출해 메인 창의 enabled·focusable·taskbar 상태를 다시 쓰고 포커스를 반복 적용하면서 앱 전체가 깜빡였다. 숨김 자식 창은 Windows가 부모 창으로 자연스럽게 포커스를 돌리므로 해당 강제 복구 호출을 제거했다.
 - 최신 0.3.15 소스로 네이티브 helper와 Windows x64 NSIS 설치본을 다시 빌드했다. 설치본·blockmap·`latest.yml`·터보 키 별도 자산 생성과 코드 서명이 완료됐다.
+- Windows Smart App Control 강제 모드(`VerifiedAndReputablePolicyState=1`)에서는 서명되지 않은 공식 DXVK DLL이 `0xC0E90002` 코드 무결성 오류로 차단된다. 앱이 정책을 시작 시 감지해 메인 화면과 Vulkan 관리 창에 전용 차단 상태를 표시하고 적용 버튼을 비활성화한다. 이미 앱이 적용한 DLL은 게임 폴더에서 자동 제거해 DirectX 경로로 복구하되, 해시가 다른 사용자 DLL은 삭제하지 않는다. 게임 실행 중 잠금으로 제거하지 못하면 게임 종료 후 재시도하도록 안내한다.
 
 ## 0.3.14
 

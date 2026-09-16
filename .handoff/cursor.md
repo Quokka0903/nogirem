@@ -1,11 +1,12 @@
 # Cursor AI Handoff
 
-Last Updated: 2026-09-16 14:26
+Last Updated: 2026-09-16 19:10
 
 ## Current Objective
 0.3.15 시작 준비 순서와 Vulkan 관리 창 표시 변경을 사용자 환경에서 검증한다.
 
 ## Current Status
+- `0xC0E90002`는 Smart App Control 강제 모드가 서명되지 않은 공식 DXVK DLL을 막는 코드 무결성 정책 오류로 확인했다. 앱은 HKLM CI Policy의 `VerifiedAndReputablePolicyState`를 시작 시 1회 확인하고 강제 모드이면 `security-blocked` 상태를 메인 UI와 관리 창에 전달하며 설치·재적용을 차단한다. 게임 폴더 DLL이 앱의 검증된 저장본과 해시가 일치할 때만 자동 제거해 DirectX로 복구하고, 다른 사용자 DLL은 보존한다. 게임 잠금 등 자동 제거 실패는 관리 창에서 게임 종료 후 재시도를 안내한다. 현재 PC 정책 값 0 조회, DXVK 테스트 12개, Electron·DXVK 구문 검사, Vite 빌드와 lint가 통과했고 개발 앱이 정상 실행 중이다.
 - 최신 0.3.15 소스로 Windows x64 NSIS 패키징을 완료했다. input guard·Radeon·recorder·터보 키 helper와 Vite 앱 빌드, 코드 서명, installer·blockmap 생성이 성공했다. 설치본은 97,361,341바이트·SHA-256 `FA21E987…A1AD8`, blockmap은 103,154바이트·`7B5C9E4A…6B75A`, `latest.yml`은 345바이트·`DDFE257F…E0F37`, 터보 키 자산은 291,840바이트·`D9504362…16A857`이다. 패키징 과정에서 recorder helper 바이너리를 최신 소스로 재빌드했다.
 - Vulkan 관리 창을 fade-out·hide한 직후 호출하던 `focusPrimaryWindow()`가 메인 창 enabled·focusable·taskbar 상태를 재설정하고 focus를 반복 적용해 앱 전체 합성 깜빡임을 유발했다. 숨김 자식 창에서는 Windows가 부모 포커스를 자연스럽게 복원하므로 강제 호출을 제거했다. DXVK 테스트 11개와 Electron 구문 검사·lint가 통과했다.
 - 사용자 요청에 따라 Vulkan 관리 창을 앱 준비 중 `openDxvkManager(false)`로 숨김 사전 로드한다. 캐시·설치 상태 렌더의 `content-ready` Promise까지 기다린 후 launch context를 반환하므로 애니메이션 중 보조 renderer 초기화가 겹치지 않고 클릭 시 준비된 창을 show·fade-in한다. 메인 창 fade-in이 첫 canvas draw보다 먼저 시작되던 순서도 수정했다. 배경·로고 이미지를 모두 기다리고 첫 draw와 두 rAF 이후에만 `onplaybackstart()`를 보내며 로고 실패 시에도 시작 가능한 fallback을 둔다. 시작·DXVK 테스트 39개, Electron 구문 검사, Vite 빌드와 lint가 통과했다.

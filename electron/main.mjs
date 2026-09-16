@@ -33,6 +33,7 @@ import {
   getDxvkReleases,
   getInstalledDxvk,
   installDxvkVersion,
+  removeAppliedDxvk,
 } from "../src/dxvk.mjs"
 import { assessDxvkCompatibility } from "../src/dxvk-compatibility.mjs"
 import { getLatestMuoStatus } from "../src/muo-status.mjs"
@@ -192,6 +193,7 @@ let lastInstallerCloseRequestAt = 0
 let characterGuideDrag = null
 let dxvkGuideDrag = null
 let dxvkUpdatePromise = null
+let dxvkSecurityPolicyPromise = null
 let dxvkRuntimeStatus = {
   state: "unavailable",
   latestVersion: null,
@@ -5087,6 +5089,69 @@ async function getDxvkCompatibility(version) {
   return assessDxvkCompatibility(version, gpuInfo)
 }
 
+async function getDxvkSecurityPolicy({ force = false } = {}) {
+  if (force) dxvkSecurityPolicyPromise = null
+  dxvkSecurityPolicyPromise ??= runPowerShellScript(`
+$value = (Get-ItemProperty -LiteralPath 'Registry::HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\CI\\Policy' -Name 'VerifiedAndReputablePolicyState' -ErrorAction SilentlyContinue).VerifiedAndReputablePolicyState
+if ($null -eq $value) { $value = -1 }
+$mode = switch ([int]$value) {
+  0 { 'off' }
+  1 { 'enforced' }
+  2 { 'evaluation' }
+  default { 'unknown' }
+}
+[ordered]@{
+  value = [int]$value
+  mode = $mode
+  blocksUnsignedDxvk = ([int]$value -eq 1)
+} | ConvertTo-Json -Compress
+`, { timeout: 5000 })
+    .then(({ stdout }) => JSON.parse(stdout.trim()))
+    .catch(error => ({
+      value: null,
+      mode: "unknown",
+      blocksUnsignedDxvk: false,
+      error: serializeError(error),
+    }))
+  return dxvkSecurityPolicyPromise
+}
+
+async function inspectDxvkLocalState({ recover = true } = {}) {
+  const installed = await getInstalledDxvk(getDxvkDirectory())
+  const targetPath = await getDxvkTargetPath()
+  let deployment = await getDxvkDeploymentStatus(installed, targetPath)
+  const securityPolicy = await getDxvkSecurityPolicy()
+  let recoveredFromSecurityBlock = false
+  let securityRecoveryError = null
+  if (
+    recover
+    && securityPolicy.blocksUnsignedDxvk
+    && deployment.matchesCurrent
+  ) {
+    try {
+      const recovery = await removeAppliedDxvk(installed, targetPath)
+      deployment = recovery.deployment
+      recoveredFromSecurityBlock = recovery.removed
+      writeStartupLog("Windows 코드 무결성 정책 감지 후 게임 폴더 DXVK 적용 파일 자동 제거")
+    } catch (error) {
+      if (error?.code === "ENOENT") {
+        deployment = { exists: false, matchesCurrent: false }
+        recoveredFromSecurityBlock = true
+      } else {
+        securityRecoveryError = serializeError(error)
+        writeStartupLog(`Windows 보안 정책 DXVK 자동 제거 실패 ${securityRecoveryError}`)
+      }
+    }
+  }
+  return {
+    installed,
+    deployment,
+    securityPolicy,
+    recoveredFromSecurityBlock,
+    securityRecoveryError,
+  }
+}
+
 function getDxvkLatestCachePath() {
   return join(getDxvkDirectory(), "latest.json")
 }
@@ -5157,9 +5222,25 @@ async function getCachedDxvkReleases() {
 }
 
 async function evaluateDxvkRuntimeStatus(latest) {
-  const installed = await getInstalledDxvk(getDxvkDirectory())
-  const deployment = await getDxvkDeploymentStatus(installed, await getDxvkTargetPath())
+  const {
+    installed,
+    deployment,
+    securityPolicy,
+    recoveredFromSecurityBlock,
+    securityRecoveryError,
+  } = await inspectDxvkLocalState()
   const compatibility = await getDxvkCompatibility(installed.current?.version)
+  if (securityPolicy.blocksUnsignedDxvk) {
+    return {
+      state: "security-blocked",
+      latestVersion: latest.version,
+      compatibility,
+      securityPolicy,
+      recoveredFromSecurityBlock,
+      securityRecoveryError,
+      error: null,
+    }
+  }
   if (
     installed.installed
     && installed.integrity
@@ -5189,15 +5270,25 @@ async function evaluateDxvkRuntimeStatus(latest) {
 }
 
 async function evaluateLocalDxvkRuntimeStatus(error = null) {
-  const installed = await getInstalledDxvk(getDxvkDirectory())
-  const deployment = await getDxvkDeploymentStatus(installed, await getDxvkTargetPath())
+  const {
+    installed,
+    deployment,
+    securityPolicy,
+    recoveredFromSecurityBlock,
+    securityRecoveryError,
+  } = await inspectDxvkLocalState()
   const compatibility = await getDxvkCompatibility(installed.current?.version)
   return {
-    state: installed.installed && installed.integrity && deployment.matchesCurrent
+    state: securityPolicy.blocksUnsignedDxvk
+      ? "security-blocked"
+      : installed.installed && installed.integrity && deployment.matchesCurrent
       ? compatibility.compatible ? "applied-unverified" : "incompatible"
       : "unavailable",
     latestVersion: installed.current?.version ?? null,
     compatibility,
+    securityPolicy,
+    recoveredFromSecurityBlock,
+    securityRecoveryError,
     error: error ? serializeError(error) : null,
   }
 }
@@ -5235,7 +5326,9 @@ async function refreshDxvkRuntimeStatus({ force = false } = {}) {
       }).catch(() => {})
     } catch (error) {
       const localStatus = await evaluateLocalDxvkRuntimeStatus(error)
-      if (localStatus.state === "applied-unverified") {
+      if (localStatus.state === "security-blocked") {
+        dxvkRuntimeStatus = localStatus
+      } else if (localStatus.state === "applied-unverified") {
         dxvkRuntimeStatus = ["latest", "update-required"].includes(previousStatus.state)
           && previousStatus.latestVersion === localStatus.latestVersion
           ? { ...localStatus, state: "latest" }
@@ -5272,8 +5365,13 @@ function scheduleDxvkRuntimeRefresh() {
 }
 
 async function getDxvkManagerStatus({ checkLatest = false } = {}) {
-  const installed = await getInstalledDxvk(getDxvkDirectory())
-  const deployment = await getDxvkDeploymentStatus(installed, await getDxvkTargetPath())
+  const {
+    installed,
+    deployment,
+    securityPolicy,
+    recoveredFromSecurityBlock,
+    securityRecoveryError,
+  } = await inspectDxvkLocalState()
   let releases = dxvkReleasesCache
   let releaseCheckError = null
   if (checkLatest) {
@@ -5304,6 +5402,9 @@ async function getDxvkManagerStatus({ checkLatest = false } = {}) {
     installed,
     installedCompatibility,
     deployment,
+    securityPolicy,
+    recoveredFromSecurityBlock,
+    securityRecoveryError,
     latest,
     recommended,
     releases,
@@ -5320,6 +5421,12 @@ async function getDxvkManagerStatus({ checkLatest = false } = {}) {
 }
 
 async function updateDxvk(version) {
+  const securityPolicy = await getDxvkSecurityPolicy({ force: true })
+  if (securityPolicy.blocksUnsignedDxvk) {
+    throw new Error(
+      "Windows 스마트 앱 컨트롤이 서명되지 않은 DXVK DLL을 차단하고 있어 Vulkan을 적용할 수 없습니다",
+    )
+  }
   if (await detectMabinogi().catch(() => false)) {
     throw new Error("마비노기가 실행 중일 때에는 DXVK를 교체할 수 없습니다")
   }

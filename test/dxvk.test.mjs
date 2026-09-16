@@ -13,6 +13,7 @@ import {
   getDxvkReleases,
   getInstalledDxvk,
   getLatestDxvkRelease,
+  removeAppliedDxvk,
 } from "../src/dxvk.mjs"
 import {
   assessDxvkCompatibility,
@@ -209,6 +210,30 @@ test("검증된 DXVK를 게임 폴더의 d3d9_dxvk.dll로 적용한다", async (
   }
 })
 
+test("보안 정책 복구는 앱이 적용한 DXVK만 제거한다", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nogirem-dxvk-security-"))
+  const targetPath = join(root, "d3d9_dxvk.dll")
+  const dll = Buffer.from("verified-dxvk")
+  const installed = {
+    installed: true,
+    integrity: true,
+    current: { sha256: createHash("sha256").update(dll).digest("hex") },
+  }
+  try {
+    await writeFile(targetPath, dll)
+    const removed = await removeAppliedDxvk(installed, targetPath)
+    assert.equal(removed.removed, true)
+    assert.deepEqual(removed.deployment, { exists: false, matchesCurrent: false })
+
+    await writeFile(targetPath, Buffer.from("user-dll"))
+    const preserved = await removeAppliedDxvk(installed, targetPath)
+    assert.equal(preserved.removed, false)
+    assert.equal((await readFile(targetPath, "utf8")), "user-dll")
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test("관리 창의 확인·설치 완료 상태를 메인 화면에 즉시 전달한다", async () => {
   const [mainSource, preloadSource, appSource, managerSource] = await Promise.all([
     readFile(new URL("../electron/main.mjs", import.meta.url), "utf8"),
@@ -252,6 +277,7 @@ test("관리 창의 확인·설치 완료 상태를 메인 화면에 즉시 전�
   assert.match(appSource, /class:checking=\{dxvkLinkState\(\) === "checking"\}/)
   assert.match(appSource, /Vulkan 적용됨 · 최신 확인 불가/)
   assert.match(appSource, /Vulkan GPU 드라이버 호환 필요/)
+  assert.match(appSource, /Vulkan Windows 보안 정책 차단/)
   assert.match(appSource, /DXVK 상태 확인 불가/)
   assert.match(appSource, /DXVK 확인 중/)
   assert.match(
@@ -260,11 +286,25 @@ test("관리 창의 확인·설치 완료 상태를 메인 화면에 즉시 전�
   )
   assert.match(
     mainSource,
+    /VerifiedAndReputablePolicyState[\s\S]*blocksUnsignedDxvk = \(\[int\]\$value -eq 1\)/,
+  )
+  assert.match(
+    mainSource,
+    /securityPolicy\.blocksUnsignedDxvk[\s\S]*deployment\.matchesCurrent[\s\S]*removeAppliedDxvk\(installed, targetPath\)/,
+  )
+  assert.match(
+    mainSource,
+    /async function updateDxvk\(version\)[\s\S]*getDxvkSecurityPolicy\(\{ force: true \}\)[\s\S]*Windows 스마트 앱 컨트롤/,
+  )
+  assert.match(
+    mainSource,
     /releases = \[\{\s*\.\.\.installed\.current, localOnly: true \}\]/,
   )
   assert.match(managerSource, /로컬 검증 버전 · 최신 여부 확인 불가/)
   assert.match(managerSource, /GitHub 연결 실패 · 저장된 DXVK를 게임에 다시 적용할 수 있습니다/)
   assert.match(managerSource, /드라이버 호환 안 됨/)
+  assert.match(managerSource, /Windows 보안 정책으로 적용 불가/)
+  assert.match(managerSource, /게임 적용 파일 자동 제거 완료/)
   assert.match(managerSource, /status\.recommended\?\.version/)
   assert.match(managerSource, /let selectionChangedByUser = false/)
   assert.match(
