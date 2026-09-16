@@ -5632,13 +5632,13 @@ function registerIpc() {
     if (BrowserWindow.fromWebContents(event.sender) !== primaryWindow) {
       throw new Error("허용되지 않은 시작 완료 요청입니다")
     }
-    await beginDeferredStartupInitialization("렌더러 애니메이션 완료")
     return { dxvk: { ...dxvkRuntimeStatus } }
   })
   ipcMain.handle("application:get-launch-context", async event => {
     if (BrowserWindow.fromWebContents(event.sender) !== primaryWindow) {
       throw new Error("허용되지 않은 실행 상태 요청입니다")
     }
+    await prepareStartupBeforeAnimation("렌더러 준비 요청")
     const startupMusic = await getStartupMusicSetting()
     return {
       startupTray: startupTrayLaunch || primaryRendererRecoveryMode,
@@ -6266,7 +6266,6 @@ function openDxvkManager(reveal = true) {
     width: 560,
     height: 430,
     show: false,
-    opacity: 0,
     resizable: false,
     maximizable: false,
     parent: primaryWindow ?? undefined,
@@ -6304,7 +6303,6 @@ function openDxvkManager(reveal = true) {
   let contentReady = false
   let revealRequested = reveal
   let revealed = false
-  let revealGeneration = 0
   const animateOpacity = (from, to, duration, onComplete) => {
     clearInterval(opacityTimer)
     const startedAt = Date.now()
@@ -6322,33 +6320,20 @@ function openDxvkManager(reveal = true) {
       onComplete?.()
     }, 16)
   }
-  const revealWindow = async () => {
+  const revealWindow = () => {
     revealRequested = true
     if (!contentReady || revealed || window.isDestroyed()) return
-    const generation = ++revealGeneration
     revealed = true
     if (window.isMinimized()) window.restore()
+    window.setFocusable(true)
     window.setIgnoreMouseEvents(false)
     window.center()
-    window.setOpacity(0)
-    window.showInactive()
-    await window.webContents.executeJavaScript(`
-      new Promise(resolve => {
-        requestAnimationFrame(() => requestAnimationFrame(resolve))
-      })
-    `).catch(() => {})
-    if (
-      window.isDestroyed()
-      || !revealed
-      || generation !== revealGeneration
-    ) return
+    window.setOpacity(1)
+    window.show()
     window.moveTop()
     window.focus()
-    animateOpacity(0, 1, 300)
   }
-  dxvkManagerReveal = () => {
-    void revealWindow()
-  }
+  dxvkManagerReveal = revealWindow
   window.once("ready-to-show", () => {
     if (window.isDestroyed()) return
     writeStartupLog(`Vulkan 관리 창 표시 준비 ${Date.now() - openedAt}ms`)
@@ -6366,9 +6351,9 @@ function openDxvkManager(reveal = true) {
     closing = true
     animateOpacity(window.getOpacity(), 0, 300, () => {
       if (window.isDestroyed()) return
-      window.hide()
       window.setOpacity(0)
-      revealGeneration += 1
+      window.setIgnoreMouseEvents(true)
+      window.setFocusable(false)
       revealed = false
       revealRequested = false
       closing = false
@@ -6402,7 +6387,7 @@ function openDxvkManager(reveal = true) {
       if (window.isDestroyed()) return
       writeStartupLog(`Vulkan 관리 창 렌더링 완료 ${Date.now() - openedAt}ms`)
       contentReady = true
-      if (revealRequested) void revealWindow()
+      if (revealRequested) revealWindow()
     })
     .catch(error => showWindowLoadError(window, error))
     .catch(error => console.error("DXVK 관리 화면 로드 실패", error))
@@ -6881,13 +6866,12 @@ function beginPrimaryWindowReveal() {
   revealFrame()
 }
 
-function beginDeferredStartupInitialization(reason) {
+function prepareStartupBeforeAnimation(reason) {
   clearTimeout(deferredStartupInitializationTimer)
   deferredStartupInitializationTimer = null
   if (deferredStartupInitializationPromise) return deferredStartupInitializationPromise
-  writeStartupLog(`지연 초기화 시작 (${reason})`)
+  writeStartupLog(`애니메이션 전 초기화 시작 (${reason})`)
   deferredStartupInitializationPromise = (async () => {
-    await delay(500)
     await mabinogiPathInitializationPromise
     await ensureBlackboxStarted()
       .catch(error => console.error("블랙박스 녹화 자동 실행 실패", error))
@@ -6907,7 +6891,7 @@ function beginDeferredStartupInitialization(reason) {
     void refreshDxvkRuntimeStatus().finally(scheduleDxvkRuntimeRefresh)
     await installCharacterSimplificationFile()
       .catch(error => console.error("주변 캐릭터 간소화 파일 설치 실패", error))
-    writeStartupLog("지연 초기화 완료")
+    writeStartupLog("애니메이션 전 초기화 완료")
   })()
   return deferredStartupInitializationPromise
 }
@@ -7258,7 +7242,7 @@ function createWindow() {
       if (primaryWindowFocusPending) focusPrimaryWindow()
       clearTimeout(deferredStartupInitializationTimer)
       deferredStartupInitializationTimer = setTimeout(() => {
-        void beginDeferredStartupInitialization("렌더러 완료 신호 대기 시간 초과")
+        void prepareStartupBeforeAnimation("렌더러 준비 요청 대기 시간 초과")
       }, 10000)
     })
     .catch(error => showWindowLoadError(window, error))

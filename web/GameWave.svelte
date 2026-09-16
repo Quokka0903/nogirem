@@ -31,6 +31,7 @@
   let drawWakeTimer
   let hideTimer
   let audioStopTimer
+  let startupIdleTimer
   let playbackFallbackTimer
   let ambientTimer
   let active = true
@@ -478,8 +479,10 @@
       }, Math.max(0, 2500 - initialTimelineElapsed))
       audioStopTimer = window.setTimeout(() => {
         nextAudio.pause()
-        onstartupidle()
       }, Math.max(0, 6200 - initialTimelineElapsed))
+      startupIdleTimer = window.setTimeout(() => {
+        onstartupidle()
+      }, Math.max(0, finalStartupWaveEnd - initialTimelineElapsed))
     }
 
     if (startupMuted) {
@@ -516,6 +519,7 @@
     const currentPlaybackId = playbackId
     window.clearTimeout(hideTimer)
     window.clearTimeout(audioStopTimer)
+    window.clearTimeout(startupIdleTimer)
     window.clearTimeout(playbackFallbackTimer)
     window.clearTimeout(drawWakeTimer)
     cancelAnimationFrame(animationFrame)
@@ -542,6 +546,7 @@
     startupStopPending = false
     window.clearTimeout(hideTimer)
     window.clearTimeout(audioStopTimer)
+    window.clearTimeout(startupIdleTimer)
     window.clearTimeout(playbackFallbackTimer)
     window.clearTimeout(drawWakeTimer)
     cancelAnimationFrame(animationFrame)
@@ -604,6 +609,7 @@
       playbackId += 1
       window.clearTimeout(hideTimer)
       window.clearTimeout(audioStopTimer)
+      window.clearTimeout(startupIdleTimer)
       window.clearTimeout(playbackFallbackTimer)
       window.clearTimeout(ambientTimer)
       window.clearTimeout(drawWakeTimer)

@@ -666,7 +666,7 @@ test("고정 시점 블랙박스 추출 편집 창과 구간 remux가 연결된�
   assert.match(mainSource, /mabinogiPathInitializationPromise = loadMabinogiExecutablePath\(\)/)
   assert.match(
     mainSource,
-    /function beginDeferredStartupInitialization\(reason\)[\s\S]*await mabinogiPathInitializationPromise[\s\S]*ensureBlackboxStarted\(\)/,
+    /function prepareStartupBeforeAnimation\(reason\)[\s\S]*await mabinogiPathInitializationPromise[\s\S]*ensureBlackboxStarted\(\)/,
   )
   assert.match(mainSource, /let blackboxStorageSummaryPromisePath = ""/)
   assert.match(mainSource, /blackboxStorageSummaryPromisePath === summaryKey/)

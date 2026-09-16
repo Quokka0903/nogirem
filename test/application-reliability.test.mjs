@@ -329,7 +329,7 @@ test("시작 이미지와 음악이 실패하거나 지연되어도 시작 애�
   )
 })
 
-test("시작 애니메이션은 오디오 정체와 분리하고 무거운 초기화를 종료 뒤 시작한다", () => {
+test("시작 애니메이션은 오디오 정체와 분리하고 무거운 초기화를 재생 전에 끝낸다", () => {
   assert.match(
     gameWave,
     /function currentTimelineElapsed\(\) \{[\s\S]*performance\.now\(\) - startedAt/,
@@ -344,24 +344,24 @@ test("시작 애니메이션은 오디오 정체와 분리하고 무거운 초�
   )
   assert.match(
     gameWave,
-    /audioStopTimer = window\.setTimeout\(\(\) => \{[\s\S]*nextAudio\.pause\(\)[\s\S]*onstartupidle\(\)/,
+    /audioStopTimer = window\.setTimeout\(\(\) => \{[\s\S]*nextAudio\.pause\(\)[\s\S]*6200 - initialTimelineElapsed/,
+  )
+  assert.match(
+    gameWave,
+    /startupIdleTimer = window\.setTimeout\(\(\) => \{[\s\S]*onstartupidle\(\)[\s\S]*finalStartupWaveEnd - initialTimelineElapsed/,
   )
   assert.match(electronPreload, /completeStartupAnimation/)
   assert.match(
     electronMain,
-    /application:complete-startup-animation[\s\S]*beginDeferredStartupInitialization\("렌더러 애니메이션 완료"\)/,
+    /application:get-launch-context[\s\S]*await prepareStartupBeforeAnimation\("렌더러 준비 요청"\)[\s\S]*getStartupMusicSetting\(\)/,
   )
   assert.match(
     electronMain,
-    /function beginDeferredStartupInitialization\(reason\)[\s\S]*await delay\(500\)[\s\S]*await ensureBlackboxStarted\(\)[\s\S]*await loadCachedDxvkReleases\(\)/,
+    /function prepareStartupBeforeAnimation\(reason\)[\s\S]*await ensureBlackboxStarted\(\)[\s\S]*await loadCachedDxvkReleases\(\)/,
   )
   assert.doesNotMatch(
     electronMain,
-    /function beginDeferredStartupInitialization\(reason\)[\s\S]*openDxvkManager\(false\)[\s\S]*function internalWindows\(\)/,
-  )
-  assert.match(
-    electronMain,
-    /application:complete-startup-animation[\s\S]*await beginDeferredStartupInitialization\("렌더러 애니메이션 완료"\)/,
+    /function prepareStartupBeforeAnimation\(reason\)[\s\S]*openDxvkManager\(false\)[\s\S]*function internalWindows\(\)/,
   )
   assert.match(
     electronMain,
@@ -373,7 +373,7 @@ test("시작 애니메이션은 오디오 정체와 분리하고 무거운 초�
   )
   assert.match(
     electronMain,
-    /beginDeferredStartupInitialization\("렌더러 완료 신호 대기 시간 초과"\)[\s\S]*10000/,
+    /prepareStartupBeforeAnimation\("렌더러 준비 요청 대기 시간 초과"\)[\s\S]*10000/,
   )
 })
 

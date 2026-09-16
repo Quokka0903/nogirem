@@ -1,11 +1,13 @@
 # Cursor AI Handoff
 
-Last Updated: 2026-09-16 10:43
+Last Updated: 2026-09-16 11:00
 
 ## Current Objective
 0.3.15 시작 애니메이션 부하 분리 변경을 사용자 환경에서 검증한다.
 
 ## Current Status
+- 사용자 지적대로 recorder 초기화를 애니메이션 뒤로 미루는 구조 자체를 폐기했다. renderer가 시작 화면 골격을 그린 뒤 호출하는 `application:get-launch-context`가 `prepareStartupBeforeAnimation()`을 기다리고, 이 함수가 recorder ready·DXVK 캐시/로컬 상태·간소화 파일 준비를 끝낸 다음에만 launch context를 반환한다. App은 기존처럼 launch context를 받은 후 `gameWave.allowStartup()`을 호출하므로 D3D·WGC·Media Foundation 초기화가 재생 전에 완료된다. 애니메이션 완료 IPC는 더 이상 초기화를 시작하지 않고 확정 DXVK 상태만 반환한다. 전체 Node 테스트 173개, Electron 구문 검사, Vite 프로덕션 빌드와 lint가 통과했다.
+- 시작 애니메이션의 실제 종료 계산 오류를 확정했다. 마지막 파동은 `time=4950`, `duration=3500`이라 8450ms에 끝나지만 `onstartupidle()`은 오디오 정지용 6200ms timer에서 호출됐다. 2.25초 남은 마지막 파동 도중 recorder가 시작됐고 01:29 로그의 38.524~39.066 D3D 초기화 0.542초가 사용자가 본 끝부분 정지와 일치했다. `audioStopTimer`는 6200ms에 음원만 멈추고 별도 `startupIdleTimer`는 계산된 `finalStartupWaveEnd`에 후속 renderer 조회를 시작한다. recorder 자체는 위 변경으로 애니메이션 재생 전에 완료한다. Vulkan 창은 opacity 0에서 rAF를 실행해도 Windows compositor surface 표시를 보장하지 못했다. 일반 닫기 시 `hide()`하지 않고 renderer를 투명·입력 무시·focus 불가 상태로 계속 유지하며, 재열기는 보존된 완성 surface를 opacity 1로 즉시 표시해 fade와 검은 프레임 경로를 모두 제거했다.
 - 01:22 실행에서 시작 시 숨김 Vulkan 창 생성은 사라졌고, 사용자가 01:23:07에 직접 연 첫 창도 DOM 71ms·완성 렌더 88ms였다. 그런데 메인 배지는 이벤트·2초 poll 전에 받은 초기 `checking` 상태가 남을 수 있었고, 재열기는 `hide()`로 폐기된 Chromium surface를 다시 그리기 전에 opacity fade를 시작해 검은 배경이 먼저 보였다. DXVK 초기값을 `unavailable`로 바꾸고 시작 완료 IPC가 캐시·로컬 평가 결과를 renderer에 직접 반환한다. 관리 창은 background throttling을 끄고 재표시할 때 opacity 0의 `showInactive()` 상태에서 두 rAF를 기다려 표면을 먼저 복구한 뒤 focus·fade한다. 창의 `loadInstalled()`와 `checkUpdate()`는 두 프레임 뒤 독립 실행하며 generation으로 늦은 로컬 응답의 최신 결과 덮어쓰기를 막는다. 전체 Node 테스트 173개, Electron 구문 검사, Vite 프로덕션 빌드와 lint가 통과했다.
 - 01:17 최신 실행에서 블랙박스는 0.542초에 ready가 됐지만 바로 이어 숨김 Vulkan BrowserWindow의 renderer 준비가 1.272초 걸렸다. 별도 renderer라도 메인 창과 Chromium GPU 프로세스를 공유하므로 이것이 사용자가 본 애니메이션 끝의 약 1초 멈춤이다. 시작 경로의 `openDxvkManager(false)`를 제거해 사용자가 Vulkan 관리를 열 때만 창을 생성하고, 블랙박스 초기화도 애니메이션 완료 뒤 500ms 유예한다. DXVK 상태가 온라인 조회 최대 15초 동안 `checking`에 머물던 문제는 캐시가 없을 때 로컬 설치·적용 상태를 먼저 평가해 즉시 알리고, 온라인 refresh가 기존 확정 상태를 `checking`으로 덮지 않도록 변경했다. 전체 Node 테스트 173개, Electron 구문 검사, Vite 프로덕션 빌드와 lint가 통과했다.
 - 시작 병목의 근본 경로를 제거했다. 블랙박스 드라이브 목록은 더 이상 PowerShell `Get-CimInstance Win32_LogicalDisk`를 호출하지 않고 recorder helper의 `GetLogicalDriveStringsW`·`GetDriveTypeW`·`GetDiskFreeSpaceExW`로 고정·이동식 드라이브와 여유 공간을 반환한다. 현재 PC의 동일 결과 조회는 2.364초에서 48ms로 줄었다. `blackboxStorageDrivesPromise` single-flight 캐시로 자동 시작과 설정 조회가 동시에 들어와도 helper를 한 번만 실행한다. 지연 초기화는 블랙박스 recorder ready를 기다린 뒤 DXVK 캐시를 처리하며, renderer도 이 완료 IPC를 기다린 뒤 설정·공지와 전체 그래픽·네트워크·NIC·메모리 조회를 시작한다. recorder Release 빌드와 네이티브 드라이브 JSON 실행, 전체 Node 테스트 173개, Electron 구문 검사, Vite 프로덕션 빌드와 lint가 통과했다.
@@ -646,7 +648,7 @@ Last Updated: 2026-09-16 10:43
 20. 마비노기 전면 창에서 `2 누름 → 3 누름 → 일반 키 4 누름·해제 → 3 해제 → 2 해제` 순서로 실제 입력 전환을 확인한다.
 
 ## Known Issues
-- Vulkan 관리 창의 시작 사전 생성은 제거했으므로 앱 실행 부하는 줄지만, 해당 창을 처음 직접 열 때는 BrowserWindow renderer 생성 시간이 발생할 수 있다.
+- Vulkan 관리 창의 시작 사전 생성은 제거했으므로 앱 실행 부하는 줄지만, 해당 창을 처음 직접 열 때는 BrowserWindow renderer 생성 시간이 발생할 수 있다. 문서 완성 전에는 표시하지 않는다.
 - 블랙박스 자동 시작을 전체 파동·음악 종료 뒤로 옮겨 앱 실행 직후 녹화 시작이 기존보다 약 5초 늦어진다. 애니메이션 부드러움과 초기 녹화 공백 사이의 선택이며 실제 사용자 환경에서 확인이 필요하다.
 - 같은 버전의 0.3.14 Release 자산을 대치하므로 기존 0.3.14 설치자는 자동 업데이트가 다시 실행되지 않아 수정 설치본을 수동 재설치해야 한다. 0.3.13 이하는 일반 0.3.14 업데이트로 수정본을 받는다.
 - Windows 접근성 커서의 절대 최대값은 `CursorBaseSize=256`이므로 기본 크기 32 기준 800%보다 크게 설정할 수 없다.
@@ -783,7 +785,9 @@ Last Updated: 2026-09-16 10:43
 - `vite.config.mjs`: Svelte 렌더러 빌드 설정
 
 ## Recent Changes
-- 시작 완료 IPC로 DXVK 로컬 상태를 직접 전달하고 초기 무한 `checking` 상태를 제거했다. 숨긴 Vulkan 창은 두 프레임을 선렌더한 뒤 표시하며 로컬·온라인 상태 조회는 독립 실행한다.
+- recorder·DXVK 로컬 초기화를 launch context 응답 전에 완료해 애니메이션은 모든 GPU 초기화가 끝난 뒤에만 시작한다.
+- 오디오 종료 6200ms와 실제 마지막 파동 종료 8450ms를 별도 timer로 분리해 recorder 초기화가 남은 애니메이션과 겹치지 않게 했다. Vulkan 창은 닫아도 surface를 폐기하지 않고 투명 상태로 보존하며 재열기 fade를 제거했다.
+- 시작 완료 IPC로 DXVK 로컬 상태를 직접 전달하고 초기 무한 `checking` 상태를 제거했다. 로컬·온라인 상태 조회는 독립 실행한다.
 - 시작 시 숨김 Vulkan renderer 생성을 제거하고 블랙박스 초기화를 애니메이션 종료에서 500ms 분리했다. DXVK는 로컬 상태를 먼저 표시하고 온라인 확인 중에도 확정 상태를 유지한다.
 - 블랙박스 드라이브 조회를 PowerShell CIM에서 recorder helper의 Win32 API로 교체해 실측 2.364초를 48ms로 줄이고 single-flight 캐시를 추가했다. recorder ready 이후 DXVK 캐시와 renderer 전체 조회가 시작되도록 초기 작업을 순서화했다.
 - 시작 지연을 세분화해 helper 전 드라이브 CIM PowerShell 1.645초, helper 준비 0.862초, Vulkan renderer 0.523초로 확인했고 동일 CIM 명령의 단독 실행도 2.364초로 측정했다. 중복 드라이브 조회와 초기 작업 fan-out을 근본 병목으로 확정했다.
@@ -1634,4 +1638,4 @@ Last Updated: 2026-09-16 10:43
 - 정확 재인코딩의 첫 PCM sample 내부에서 요청 시점 전 frame을 제거해 AAC frame 경계의 최대 약 21ms 선행도 없앴다. 실제 비정렬 시작점 추출은 통과했지만 실행 중 recorder 잠금 때문에 배포용 local bin 갱신은 남아 있다.
 
 ## Next Recommended Step
-전체 테스트와 Vite 빌드를 실행한 뒤 `npm run app:dev`를 재시작해 메인 DXVK 배지가 즉시 확정되고 Vulkan 창을 닫았다 다시 열 때 검은 프레임 없이 표시되는지 확인한다.
+전체 테스트와 Vite 빌드를 실행한 뒤 `npm run app:dev`를 재시작해 `애니메이션 전 초기화 완료` 로그 다음에만 재생이 시작되고 Vulkan 창 재열기에 fade·검은 프레임이 없는지 확인한다.
