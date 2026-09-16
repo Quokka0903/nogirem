@@ -327,6 +327,15 @@ test("시작 이미지와 음악이 실패하거나 지연되어도 시작 애�
     gameWave,
     /image\.onerror = error => \{[\s\S]*imageReady = true[\s\S]*playStartup\(\)/,
   )
+  assert.match(gameWave, /if \(imageReady && logoImageReady\) playStartup\(\)/)
+  assert.match(
+    gameWave,
+    /requestDraw\(\)[\s\S]*requestAnimationFrame\(\(\) => \{[\s\S]*requestAnimationFrame\(\(\) => \{[\s\S]*onplaybackstart\(\)/,
+  )
+  assert.match(
+    gameWave,
+    /logoImage\.onerror = error => \{[\s\S]*logoImageReady = true[\s\S]*playStartup\(\)/,
+  )
 })
 
 test("시작 애니메이션은 오디오 정체와 분리하고 무거운 초기화를 재생 전에 끝낸다", () => {
@@ -363,7 +372,7 @@ test("시작 애니메이션은 오디오 정체와 분리하고 무거운 초�
     electronMain,
     /function prepareStartupBeforeAnimation\(reason\)[\s\S]*await ensureBlackboxStarted\(\)[\s\S]*await loadCachedDxvkReleases\(\)/,
   )
-  assert.doesNotMatch(
+  assert.match(
     electronMain,
     /function prepareStartupBeforeAnimation\(reason\)[\s\S]*openDxvkManager\(false\)[\s\S]*function internalWindows\(\)/,
   )

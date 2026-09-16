@@ -14,6 +14,7 @@
 - 캐시·로컬 설치·게임 적용 상태를 렌더한 뒤 두 프레임이 완료돼야 `content-ready`를 보내 정적 `확인 전` 항목이 노출되지 않는다. 설치 직후에도 파일 무결성·선택 버전·게임 적용을 재검증하고, 불일치하면 성공 문구 대신 오류를 표시한다. 설치 후 확정 runtime 상태와 배포 결과는 로그와 메인 상태 이벤트에 직접 반영한다.
 - 시작 애니메이션 뒤 블랙박스 설정이 늦게 로드되면 제어 요소가 생성될 때 이미 `entered` 클래스가 붙어 CSS transition의 시작 상태를 거치지 않고 즉시 나타났다. 요소가 늦게 생성돼도 항상 실행되는 450ms opacity·위치 keyframe animation으로 교체해 블랙박스 켜짐 영역이 부드럽게 fade-in한다.
 - recorder 프로세스는 애니메이션 전에 준비하면서도 renderer의 블랙박스 설정은 애니메이션 종료 후 지연 조회해 제어 영역 생성 시점이 달랐다. recorder 준비 Promise가 끝난 직후 `getBlackboxSetting()`을 실행해 launch context에 포함하고, renderer가 이 상태를 적용한 뒤에만 시작 애니메이션을 허용한다. 애니메이션 뒤 중복 설정 조회는 제거하며 조회 실패가 전체 시작을 막지는 않는다.
+- 앱 시작 준비 단계에서 Vulkan 관리 BrowserWindow를 `show: false`로 만들고 캐시·설치 상태가 DOM에 반영된 `content-ready`까지 기다린다. 사용자가 관리 창을 열 때는 준비된 창을 `show()`하고 fade-in만 수행한다. 메인 창은 시작 배경과 로고 이미지가 모두 준비된 뒤 첫 canvas draw와 두 번의 animation frame을 마쳐야 fade-in 신호를 보내므로, 빈 canvas가 먼저 나타나고 로고가 도중에 팍 등장하지 않는다.
 
 ## 0.3.14
 

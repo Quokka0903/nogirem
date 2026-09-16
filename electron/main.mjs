@@ -157,6 +157,7 @@ let characterGuideWindow = null
 let dxvkManagerWindow = null
 let dxvkManagerReveal = null
 let dxvkManagerContentReady = null
+let dxvkManagerReadyPromise = null
 let dxvkGuideWindow = null
 let blackboxManagerWindow = null
 let blackboxManagerPreferredSize = null
@@ -6299,7 +6300,7 @@ function closeWindowOnEscape(window, rendererEvent = "") {
 function openDxvkManager(reveal = true) {
   if (dxvkManagerWindow && !dxvkManagerWindow.isDestroyed()) {
     if (reveal) dxvkManagerReveal?.()
-    return
+    return dxvkManagerReadyPromise ?? Promise.resolve()
   }
 
   const openedAt = Date.now()
@@ -6347,6 +6348,10 @@ function openDxvkManager(reveal = true) {
   let revealRequested = reveal
   let revealed = false
   let opacityTimer = null
+  let resolveReady = null
+  dxvkManagerReadyPromise = new Promise(resolve => {
+    resolveReady = resolve
+  })
   const animateOpacity = (from, to, duration, onComplete) => {
     clearInterval(opacityTimer)
     const startedAt = Date.now()
@@ -6387,6 +6392,8 @@ function openDxvkManager(reveal = true) {
     if (contentReady || window.isDestroyed()) return
     writeStartupLog(`Vulkan 관리 창 콘텐츠 준비 ${Date.now() - openedAt}ms`)
     contentReady = true
+    resolveReady?.()
+    resolveReady = null
     if (revealRequested) revealWindow()
   }
   window.once("ready-to-show", () => {
@@ -6423,7 +6430,10 @@ function openDxvkManager(reveal = true) {
       dxvkManagerWindow = null
       dxvkManagerReveal = null
       dxvkManagerContentReady = null
+      dxvkManagerReadyPromise = null
     }
+    resolveReady?.()
+    resolveReady = null
     if (!applicationExitInProgress && !closedForTray) focusPrimaryWindow()
   })
   const sourceManagerPath = join(root, "dxvk-manager.html")
@@ -6437,8 +6447,13 @@ function openDxvkManager(reveal = true) {
     .then(() => {
       writeStartupLog(`Vulkan 관리 창 문서 로드 ${Date.now() - openedAt}ms`)
     })
-    .catch(error => showWindowLoadError(window, error))
+    .catch(error => {
+      resolveReady?.()
+      resolveReady = null
+      return showWindowLoadError(window, error)
+    })
     .catch(error => console.error("DXVK 관리 화면 로드 실패", error))
+  return dxvkManagerReadyPromise
 }
 
 function openBlackboxManager() {
@@ -6937,6 +6952,7 @@ function prepareStartupBeforeAnimation(reason) {
       notifyDxvkRuntimeStatusChanged()
     })
     void refreshDxvkRuntimeStatus().finally(scheduleDxvkRuntimeRefresh)
+    await openDxvkManager(false)
     await installCharacterSimplificationFile()
       .catch(error => console.error("주변 캐릭터 간소화 파일 설치 실패", error))
     writeStartupLog("애니메이션 전 초기화 완료")

@@ -299,9 +299,13 @@ test("관리 창의 확인·설치 완료 상태를 메인 화면에 즉시 전�
     dxvkManagerWindowSource,
     /contentReady = true[\s\S]*if \(revealRequested\) revealWindow\(\)/,
   )
-  assert.doesNotMatch(
+  assert.match(
     mainSource,
     /function prepareStartupBeforeAnimation\(reason\)[\s\S]*openDxvkManager\(false\)/,
+  )
+  assert.match(
+    dxvkManagerWindowSource,
+    /dxvkManagerReadyPromise = new Promise[\s\S]*dxvkManagerContentReady = \(\) => \{[\s\S]*resolveReady\?\.\(\)/,
   )
   assert.doesNotMatch(managerSource, /contentReady\(\{[\s\S]{0,300}loadInstalled\(\)/)
   assert.doesNotMatch(

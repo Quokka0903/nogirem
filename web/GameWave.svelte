@@ -459,7 +459,6 @@
       animationStarted = true
       window.clearTimeout(playbackFallbackTimer)
       playbackFallbackTimer = null
-      onplaybackstart()
       circles = createCircles()
       const initialTimelineElapsed = startupMuted
         ? (startupPlaybackCueSeconds - timelineCueSeconds) * 1000
@@ -474,6 +473,11 @@
       cancelAnimationFrame(animationFrame)
       animationFrame = null
       requestDraw()
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (currentPlaybackId === playbackId) onplaybackstart()
+        })
+      })
       hideTimer = window.setTimeout(() => {
         onstartupcomplete()
       }, Math.max(0, 2500 - initialTimelineElapsed))
@@ -536,7 +540,7 @@
   export function allowStartup() {
     if (startupAllowed) return
     startupAllowed = true
-    if (imageReady) playStartup()
+    if (imageReady && logoImageReady) playStartup()
   }
 
   export function skipStartup() {
@@ -588,21 +592,27 @@
       createImageCache()
       imageReady = true
       if (startupStopPending) finishStartup()
-      else if (startupAllowed) playStartup()
+      else if (startupAllowed && logoImageReady) playStartup()
       else if (mode === "background") requestDraw()
     }
     image.onerror = error => {
       console.warn("시작 배경 이미지를 불러오지 못했습니다", error)
       imageReady = true
       if (startupStopPending) finishStartup()
-      else if (startupAllowed) playStartup()
+      else if (startupAllowed && logoImageReady) playStartup()
     }
     image.src = "./main3-optimized.jpg"
     logoImage = new Image()
     logoImage.onload = () => {
       createLogoMaskCache()
       logoImageReady = true
+      if (startupAllowed && imageReady) playStartup()
       requestDraw()
+    }
+    logoImage.onerror = error => {
+      console.warn("시작 로고 이미지를 불러오지 못했습니다", error)
+      logoImageReady = true
+      if (startupAllowed && imageReady) playStartup()
     }
     logoImage.src = "./logo3.png"
     return () => {
