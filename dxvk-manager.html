@@ -202,6 +202,13 @@
         color: #ef847b;
       }
 
+      .security-notice {
+        margin: 8px 0 0;
+        color: #e39a42;
+        font-size: 10px;
+        line-height: 1.4;
+      }
+
       .actions {
         display: flex;
         justify-content: flex-end;
@@ -276,6 +283,9 @@
         </article>
       </section>
       <p class="message" role="status"></p>
+      <p class="security-notice" hidden>
+        Windows 보안 정책이 일부 DXVK 버전을 차단할 수 있습니다. 오류 상태 0xC0E90002가 나타나면 이전 버전을 선택하세요.
+      </p>
       <footer class="actions">
         <button class="action primary install" type="button" disabled>다운로드 및 업데이트</button>
       </footer>
@@ -287,6 +297,7 @@
       const versionSelect = document.querySelector(".version-select")
       const latestDetail = document.querySelector(".latest-detail")
       const message = document.querySelector(".message")
+      const securityNotice = document.querySelector(".security-notice")
       const installButton = document.querySelector(".install")
       let busy = false
       let lastStatus = null
@@ -312,7 +323,6 @@
       }
 
       function selectionNeedsInstall() {
-        if (lastStatus?.securityPolicy?.blocksUnsignedDxvk) return false
         const selected = selectedRelease()
         return selected?.compatibility?.compatible !== false
           && (selectionNeedsDownload()
@@ -337,9 +347,7 @@
           selected?.compatibility?.compatible === false ? "warning" : selected ? "ready" : ""
         }`
         installButton.disabled = busy || !selectionNeedsInstall()
-        installButton.textContent = lastStatus?.securityPolicy?.blocksUnsignedDxvk
-          ? "Windows 보안 정책으로 적용 불가"
-          : selectionNeedsDownload()
+        installButton.textContent = selectionNeedsDownload()
           ? lastStatus?.installed?.installed ? "선택 버전으로 교체" : "다운로드 및 적용"
           : selectionNeedsInstall() ? "게임에 적용" : "적용됨"
       }
@@ -362,16 +370,11 @@
       function render(status) {
         const previousSelection = versionSelect.value
         lastStatus = status
+        securityNotice.hidden = !status.securityPolicy?.blocksUnsignedDxvk
         const installed = status.installed
         if (installed.installed) {
           installedVersion.textContent = installed.current.version
-          installedDetail.textContent = status.securityPolicy?.blocksUnsignedDxvk
-            ? status.securityRecoveryError
-              ? "Windows 보안 정책 차단 감지 · 게임을 종료한 뒤 다시 열어 자동 복구하세요"
-              : status.recoveredFromSecurityBlock
-              ? "Windows 보안 정책 차단 감지 · 게임 적용 파일 자동 제거 완료"
-              : "Windows 스마트 앱 컨트롤이 서명되지 않은 DXVK DLL을 차단합니다"
-            : status.installedCompatibility?.compatible === false
+          installedDetail.textContent = status.installedCompatibility?.compatible === false
             ? `${status.installedCompatibility.reason} · 호환 버전으로 교체하세요`
             : installed.integrity
             ? status.deployment.matchesCurrent
@@ -382,15 +385,12 @@
             installed.integrity
               && status.deployment.matchesCurrent
               && status.installedCompatibility?.compatible !== false
-              && !status.securityPolicy?.blocksUnsignedDxvk
               ? "ready"
               : "warning"
           }`
         } else {
           installedVersion.textContent = "없음"
-          installedDetail.textContent = status.securityPolicy?.blocksUnsignedDxvk
-            ? "Windows 스마트 앱 컨트롤이 서명되지 않은 DXVK DLL을 차단합니다"
-            : installed.current
+          installedDetail.textContent = installed.current
             ? "기록된 DLL 파일을 찾지 못했습니다"
             : "아직 다운로드한 DXVK가 없습니다"
           installedDetail.className = "status-detail warning"

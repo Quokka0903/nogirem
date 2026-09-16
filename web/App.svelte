@@ -701,7 +701,6 @@
 
   function dxvkLinkState() {
     const state = services.affinity.data?.dxvk?.state
-    if (state === "security-blocked") return state
     if (services.affinity.data?.renderer?.mode === "direct3d9") return "not-in-use"
     if (
       ["latest", "update-required", "applied-unverified", "incompatible", "unavailable"]
@@ -2251,8 +2250,6 @@
             <span>
               {dxvkLinkState() === "not-in-use"
                 ? "Vulkan을 사용중이지 않음"
-                : dxvkLinkState() === "security-blocked"
-                  ? "Vulkan Windows 보안 정책 차단"
                 : dxvkLinkState() === "update-required"
                   ? "Vulkan 업데이트가 필요함"
                   : dxvkLinkState() === "incompatible"

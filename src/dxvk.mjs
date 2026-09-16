@@ -236,16 +236,6 @@ export async function getDxvkDeploymentStatus(installed, targetPath) {
   }
 }
 
-export async function removeAppliedDxvk(installed, targetPath) {
-  let deployment = await getDxvkDeploymentStatus(installed, targetPath)
-  if (!deployment.matchesCurrent) {
-    return { deployment, removed: false }
-  }
-  await unlink(targetPath)
-  deployment = await getDxvkDeploymentStatus(installed, targetPath)
-  return { deployment, removed: true }
-}
-
 export async function applyInstalledDxvk(vulkanDirectory, targetPath) {
   const installed = await getInstalledDxvk(vulkanDirectory)
   if (!installed.installed || !installed.integrity) {
