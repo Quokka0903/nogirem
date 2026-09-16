@@ -5666,16 +5666,18 @@ function registerIpc() {
     if (BrowserWindow.fromWebContents(event.sender) !== primaryWindow) {
       throw new Error("허용되지 않은 실행 상태 요청입니다")
     }
-    const [startupMusic, optimizationStatus] = await Promise.all([
+    const startupPreparation = prepareStartupBeforeAnimation("렌더러 준비 요청")
+    const [startupMusic, optimizationStatus, blackboxSetting] = await Promise.all([
       getStartupMusicSetting(),
       getOptimizationStatus(),
-      prepareStartupBeforeAnimation("렌더러 준비 요청"),
+      startupPreparation.then(() => getBlackboxSetting()).catch(() => null),
     ])
     return {
       startupTray: startupTrayLaunch || primaryRendererRecoveryMode,
       startupMusicMuted: startupMusic.muted,
       optimizationStatus,
       dxvk: { ...dxvkRuntimeStatus },
+      blackboxSetting,
     }
   })
   ipcMain.handle("application:set-startup-music-setting", (event, muted) => {

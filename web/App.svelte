@@ -1893,14 +1893,6 @@
       .finally(() => {
         inputGuardSettingLoaded = true
       })
-    void window.nogirem.getBlackboxSetting()
-      .then(state => {
-        applyBlackboxState(state)
-      })
-      .catch(() => {})
-      .finally(() => {
-        blackboxSettingLoaded = true
-      })
   }
 
   onMount(() => {
@@ -1951,6 +1943,10 @@
             },
           })
         }
+        if (launchContext.blackboxSetting) {
+          applyBlackboxState(launchContext.blackboxSetting)
+        }
+        blackboxSettingLoaded = true
         startupMusicMuted = Boolean(launchContext.startupMusicMuted)
         startupMusicSettingLoaded = true
         gameWave?.setStartupMuted(startupMusicMuted)

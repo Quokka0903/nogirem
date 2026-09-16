@@ -1,11 +1,12 @@
 # Cursor AI Handoff
 
-Last Updated: 2026-09-16 12:20
+Last Updated: 2026-09-16 12:30
 
 ## Current Objective
 0.3.15 시작 준비 순서와 Vulkan 관리 창 표시 변경을 사용자 환경에서 검증한다.
 
 ## Current Status
+- 블랙박스 renderer 설정 조회도 시작 전 단계로 이동했다. `prepareStartupBeforeAnimation()`이 recorder를 준비한 뒤 `getBlackboxSetting()`을 실행해 launch context에 포함하고, App은 상태 적용과 `blackboxSettingLoaded = true`를 완료한 다음에만 `gameWave.allowStartup()`을 호출한다. 애니메이션 종료 후 `loadDeferredStartupData()`의 중복 조회는 제거했으며 조회 실패는 `null`로 처리해 앱 시작을 막지 않는다. 시작·블랙박스 테스트 34개와 Vite 빌드가 통과했다.
 - 시작 애니메이션 뒤 블랙박스 설정이 늦게 도착하면 제어 요소가 `entered` 최종 클래스와 함께 처음 생성돼 transition 없이 팍 나타났다. `.blackbox-main-controls.entered`를 450ms·150ms 지연 keyframe animation으로 교체해 늦게 mount돼도 opacity 0→1과 12px→0 이동이 항상 실행된다. 블랙박스 테스트 6개와 Vite 빌드가 통과했다.
 - 최종 요구 조합은 캐시·설치 상태 렌더 후 `content-ready → fade-in`, 설치 후 게임 DLL 재검증·오류 표시·확정 main 상태 전달을 유지하면서, 일반 닫기만 300ms fade-out 뒤 `hide()`하는 방식이다. 같은 BrowserWindow·renderer·캐시 상태를 재사용하고 재열기는 `show()` 후 300ms fade-in하며 앱 종료·트레이 정리에서만 실제 파괴한다.
 - Vulkan 관리 창은 앱 시작 때 이미 로드한 `dxvkReleasesCache`를 최초 `getStatus()` 응답에 포함한다. 창 HTML이 열릴 때마다 자동 호출하던 `checkUpdate()`를 제거해 재열기마다 셀렉터가 `확인 전`으로 초기화되고 GitHub 확인이 반복되는 경로를 없앴다. 온라인 릴리스 확인은 기존 앱 시작 및 6분 주기 갱신에서만 실행하며 설치 직후 재확인은 유지한다. DXVK 테스트 11개와 Vite 빌드가 통과했다.
