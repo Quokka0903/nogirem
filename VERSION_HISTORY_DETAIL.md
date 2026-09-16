@@ -24,6 +24,7 @@
 - 앱과 lockfile 버전을 0.3.14로 올리고 Node 테스트 169개, 네이티브 helper 4종 Release 빌드, Vite 빌드와 Windows x64 NSIS 패키징을 완료했다. 설치본은 97,269,508바이트·SHA-256 `63DA7682…7C54FA`, blockmap은 103,117바이트·`D2E50BF4…738E32`, `latest.yml`은 345바이트·`28003F7B…A269CE`, 터보 키 자산은 291,840바이트·`D9504362…16A857`이다. 설치본·ASAR 버전과 업데이트 메타데이터 및 패키지 내부 helper 무결성이 모두 일치한다.
 - 배포 커밋 `925607d`와 태그 `v0.3.14`를 원격에 push하고 [GitHub Release](https://github.com/rubystarashe/nogirem/releases/tag/v0.3.14)로 정식 공개했다. Release는 draft·prerelease가 아니며 네 자산의 원격 크기와 SHA-256 digest가 로컬 파일과 모두 일치하고 공개 다운로드 URL도 HTTP 200이다.
 - PowerShell 경로·반복 실행 수정과 진단 REPORT 답변을 포함한 0.3.14 대체 설치본을 생성했다. Node 테스트 172개, 네이티브 helper 4종과 Vite·NSIS 패키징이 통과했다. 설치본은 97,295,263바이트·SHA-256 `BF09BB4A…530E5`, blockmap은 103,236바이트·`5EFB48B5…A154`, `latest.yml`은 345바이트·`64054C1D…4825`, 터보 키 자산은 291,840바이트·`D9504362…16A857`이다. 설치본·ASAR 버전, 업데이트 메타데이터, 패키지 내부 helper와 새 REPORT 답변을 검증했다.
+- 수정 커밋 `1fe48d1`을 원격 master에 push하고 `v0.3.14` 태그를 같은 커밋으로 이동한 뒤 기존 Release 네 자산을 대체했다. 원격 자산의 크기와 SHA-256 digest가 로컬 검증값과 모두 일치하고 네 공개 다운로드 URL이 HTTP 200을 반환한다. 같은 버전 대치이므로 기존 0.3.14 설치자는 수동 재설치가 필요하다는 안내를 Release 본문에 추가했다.
 
 ## 0.3.13
 

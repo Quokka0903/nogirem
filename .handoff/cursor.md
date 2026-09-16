@@ -1,12 +1,13 @@
 # Cursor AI Handoff
 
-Last Updated: 2026-09-16 09:30
+Last Updated: 2026-09-16 09:35
 
 ## Current Objective
-PowerShell 경로·반복 실행 수정본으로 기존 0.3.14 Release를 대치한다.
+PowerShell 경로·반복 실행 수정본으로 대치한 0.3.14를 사용자 환경에서 검증한다.
 
 ## Current Status
-- 0.3.13 진단에서 확인된 `spawn powershell.exe ENOENT`를 수정했다. 공통 실행기는 `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`를 우선 사용하고 실제 파일이 없을 때만 PATH로 폴백한다. PATH를 비운 별도 Node 프로세스에서도 실제 PowerShell 실행이 성공했다. 메모리 helper가 기본 1초마다 PowerShell `Get-Process`로 게임을 찾던 잔여 경로도 affinity의 Win32 프로세스 스냅샷과 실행 경로 조회로 교체했다. 진단 UUID 전용 REPORT 답변을 추가했다. 전체 Node 테스트 172개와 네이티브 helper 4종·Vite·NSIS 패키징이 통과했다. 대체 설치본은 97,295,263바이트·SHA-256 `BF09BB4A…530E5`, blockmap은 103,236바이트·`5EFB48B5…A154`, `latest.yml`은 345바이트·`64054C1D…4825`, 터보 키 자산은 291,840바이트·`D9504362…16A857`이다. 설치본·ASAR 버전은 0.3.14이고 ASAR에 고정 경로 실행기·네이티브 메모리 감지·REPORT 답변이 포함되며 업데이트 SHA-512·크기와 패키지 내부 helper 무결성이 일치한다. 아직 원격 Release 자산은 대치하지 않았다.
+- 수정 커밋 `1fe48d1`을 원격 master에 push하고 `v0.3.14` 태그를 같은 커밋으로 강제 이동한 뒤 기존 [GitHub Release](https://github.com/rubystarashe/nogirem/releases/tag/v0.3.14)의 네 자산을 대체했다. 태그와 원격 master SHA가 일치하고 Release는 정식 공개 상태다. 원격 자산의 크기·SHA-256 digest가 로컬 검증값과 모두 일치하며 네 공개 URL이 HTTP 200을 반환한다. Release 본문은 UTF-8로 복구·검증했고 기존 0.3.14 사용자의 수동 재설치 안내를 추가했다.
+- 0.3.13 진단에서 확인된 `spawn powershell.exe ENOENT`를 수정했다. 공통 실행기는 `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`를 우선 사용하고 실제 파일이 없을 때만 PATH로 폴백한다. PATH를 비운 별도 Node 프로세스에서도 실제 PowerShell 실행이 성공했다. 메모리 helper가 기본 1초마다 PowerShell `Get-Process`로 게임을 찾던 잔여 경로도 affinity의 Win32 프로세스 스냅샷과 실행 경로 조회로 교체했다. 진단 UUID 전용 REPORT 답변을 추가했다. 전체 Node 테스트 172개와 네이티브 helper 4종·Vite·NSIS 패키징이 통과했다. 대체 설치본은 97,295,263바이트·SHA-256 `BF09BB4A…530E5`, blockmap은 103,236바이트·`5EFB48B5…A154`, `latest.yml`은 345바이트·`64054C1D…4825`, 터보 키 자산은 291,840바이트·`D9504362…16A857`이다. 설치본·ASAR 버전은 0.3.14이고 ASAR에 고정 경로 실행기·네이티브 메모리 감지·REPORT 답변이 포함되며 업데이트 SHA-512·크기와 패키지 내부 helper 무결성이 일치한다.
 - 배포 커밋 `925607d`를 원격 master에 push하고 같은 커밋에 `v0.3.14` 태그를 생성해 [GitHub Release](https://github.com/rubystarashe/nogirem/releases/tag/v0.3.14)로 공개했다. Release는 draft·prerelease가 아니며 installer·blockmap·`latest.yml`·터보 키 helper 네 자산이 모두 uploaded 상태다. 원격 digest·크기가 로컬 검증값과 전부 일치하고 네 공개 다운로드 URL도 HTTP 200을 반환한다.
 - 앱과 lockfile 버전을 0.3.14로 올리고 Windows x64 NSIS 설치본을 만들었다. Node 테스트 169개, input guard·Radeon·recorder·터보 키 helper Release 빌드와 Vite·electron-builder 패키징이 통과했다. 설치본은 97,269,508바이트·SHA-256 `63DA7682…7C54FA`, blockmap은 103,117바이트·`D2E50BF4…738E32`, `latest.yml`은 345바이트·`28003F7B…A269CE`, 터보 키 자산은 291,840바이트·`D9504362…16A857`이다. 설치본 파일·ASAR 버전은 0.3.14이고 `latest.yml`의 SHA-512·크기가 설치본과 일치하며 패키지 내부 input guard·Radeon·recorder helper도 로컬 빌드와 일치한다.
 - 사용자가 Ctrl·Alt key-up 지연이 Alt+Enter 방지를 켠 경우에만 재현된다고 확인했다. 원인은 Alt+Enter용 `WH_KEYBOARD_LL` hook이 50ms 상태 polling loop에 설치돼 모든 키 이벤트가 callback 처리까지 기다린 구조였다. Alt+Enter 차단 로직은 유지하고 키보드 hook을 독립 `GetMessage` 스레드로 분리했으며 main 상태 loop에서는 메시지 pump를 제거했다. helper 활성 상태의 주입 키 400개는 678ms, helper 없는 기준은 505ms로 추가 지연이 이벤트당 약 0.43ms였고 수초 key-up 정체는 제거됐다. 전체 169개 테스트와 앱 빌드가 통과했으며 최종 helper는 330,752바이트·SHA-256 `C534E2C1…F841FD`다.
@@ -553,7 +554,7 @@ PowerShell 경로·반복 실행 수정본으로 기존 0.3.14 Release를 대치
 - REPORT 응답에는 이메일·사용자명·시스템 경로 등 개인정보와 민감한 진단 원문을 기록하지 않는다.
 
 ## Pending Tasks
-1. 수정 커밋을 원격 master에 push하고 `v0.3.14` 태그와 기존 Release 네 자산을 대체한 뒤 원격 digest·크기·다운로드를 검증한다.
+1. PATH에서 Windows PowerShell 폴더를 제거한 문제 환경에 대체 0.3.14를 설치해 시작 트레이 실행과 프레임 부스트 중 PowerShell 반복 표시 제거를 확인한다.
 1. Alt+Enter 방지를 켠 상태에서 Ctrl·Alt를 길게 누른 뒤 key-up이 즉시 반영되는지와 Alt+Enter 차단 유지를 수동 확인한다.
 2. 마비노기에서 Ctrl·휠과 Alt·휠의 입력 지연 제거와 25% 커서 조절을 확인한다.
 1. 새 helper를 로드한 상태에서 마비노기 Client.exe를 포커스해 input-guard status의 `cursorActive`가 true로 전환되고 `CursorBaseSize`가 선택 비율로 바뀌는지 확인한다.
@@ -773,6 +774,7 @@ PowerShell 경로·반복 실행 수정본으로 기존 0.3.14 Release를 대치
 - `vite.config.mjs`: Svelte 렌더러 빌드 설정
 
 ## Recent Changes
+- 원격 master와 v0.3.14 태그를 수정 커밋 `1fe48d1`로 맞추고 기존 Release 네 자산을 검증된 대체본으로 교체했다. Release 본문에 같은 버전 수동 재설치 안내를 추가했다.
 - 공통 PowerShell 실행기를 시스템 고정 경로 우선으로 변경하고 메모리 helper의 1초 주기 PowerShell 게임 감지를 네이티브 Win32 조회로 교체했다. 진단 REPORT 답변과 PATH 제거 회귀 테스트를 추가하고 0.3.14 대체 설치본을 검증했다.
 - 0.3.14 배포 커밋과 태그를 원격에 게시하고 검증된 네 자산으로 공개 GitHub Release를 생성한 뒤 원격 무결성과 다운로드 응답을 확인했다.
 - 앱 버전을 0.3.14로 올리고 전체 테스트·네이티브 빌드·Windows NSIS 패키징 및 로컬 자산 무결성 검증을 완료했다.
@@ -1616,4 +1618,4 @@ PowerShell 경로·반복 실행 수정본으로 기존 0.3.14 Release를 대치
 - 정확 재인코딩의 첫 PCM sample 내부에서 요청 시점 전 frame을 제거해 AAC frame 경계의 최대 약 21ms 선행도 없앴다. 실제 비정렬 시작점 추출은 통과했지만 실행 중 recorder 잠금 때문에 배포용 local bin 갱신은 남아 있다.
 
 ## Next Recommended Step
-수정 커밋을 원격에 게시하고 기존 v0.3.14 태그와 Release 네 자산을 검증된 대체본으로 교체한다.
+문제 환경에서 최신 0.3.14를 수동 재설치하고 사용자 PATH 수정 없이 시작 트레이 실행과 메모리 helper 동작을 확인한다.
