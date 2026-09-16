@@ -42,7 +42,7 @@ function readPointer(pointer, type) {
   return Array.isArray(result) ? result[0] : result
 }
 
-function queryProcessPath(pid) {
+export function queryProcessPath(pid) {
   const handle = openProcess(pid)
   if (!handle) return null
   const capacity = 32768

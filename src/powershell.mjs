@@ -1,4 +1,36 @@
 import { spawn } from "node:child_process"
+import { existsSync } from "node:fs"
+import { join } from "node:path"
+
+export function resolvePowerShellExecutable({
+  platform = process.platform,
+  environment = process.env,
+  fileExists = existsSync,
+} = {}) {
+  if (platform !== "win32") return "powershell.exe"
+  const windowsDirectories = [
+    environment.SystemRoot,
+    environment.SYSTEMROOT,
+    environment.windir,
+    environment.WINDIR,
+    environment.SystemDrive
+      ? join(environment.SystemDrive, "Windows")
+      : null,
+  ].filter(Boolean)
+  for (const windowsDirectory of new Set(windowsDirectories)) {
+    const executablePath = join(
+      windowsDirectory,
+      "System32",
+      "WindowsPowerShell",
+      "v1.0",
+      "powershell.exe",
+    )
+    if (fileExists(executablePath)) return executablePath
+  }
+  return "powershell.exe"
+}
+
+const powerShellExecutable = resolvePowerShellExecutable()
 
 export function runPowerShellScript(
   script,
@@ -9,7 +41,7 @@ export function runPowerShellScript(
 ) {
   return new Promise((resolve, reject) => {
     const child = spawn(
-      "powershell.exe",
+      powerShellExecutable,
       [
         "-NoProfile",
         "-NonInteractive",

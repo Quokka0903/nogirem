@@ -44,7 +44,12 @@ import {
 import { advanceDownloadProgress } from "../src/update-progress.mjs"
 import { getYouTubeChannelProfile } from "../src/youtube-channel.mjs"
 import { assessExitConfirmation } from "../src/exit-confirmation.mjs"
-import { getGameDirectoryNames, resolveCpuAllocation } from "../src/affinity.mjs"
+import {
+  listNativeProcesses,
+  matchesGameProcess,
+  queryProcessPath,
+  resolveCpuAllocation,
+} from "../src/affinity.mjs"
 import {
   defaultTurboKeyCodes,
   defaultTurboKeyIgnoreInitialDelay,
@@ -1709,35 +1714,13 @@ async function runAffinityHelper() {
 }
 
 async function detectMabinogi() {
-  const executableName = String(config.gameExecutableName ?? "Client.exe")
-  const configuredPath = String(config.gameExecutable ?? "").replaceAll("/", "\\").toLowerCase()
-  const directoryNames = getGameDirectoryNames(config)
-  const script = `
-$ErrorActionPreference = "SilentlyContinue"
-$directoryNames = @(${directoryNames.map(quotePowerShellLiteral).join(", ")})
-$found = Get-Process | Where-Object {
-  ($_.ProcessName + ".exe") -ieq ${quotePowerShellLiteral(executableName)}
-} | Where-Object {
-  if (-not $_.Path) {
-    $false
-  } else {
-    $path = $_.Path.Replace("/", "\\").ToLowerInvariant()
-    $parentDirectoryName = [System.IO.Path]::GetFileName(
-      [System.IO.Path]::GetDirectoryName($path)
-    )
-    $mabinogiLauncherPath = [System.IO.Path]::Combine(
-      [System.IO.Path]::GetDirectoryName($_.Path),
-      "Mabinogi.exe"
-    )
-    $path -eq ${quotePowerShellLiteral(configuredPath)} -or
-      $directoryNames -contains $parentDirectoryName -or
-      (Test-Path -LiteralPath $mabinogiLauncherPath -PathType Leaf)
+  const executableName = String(config.gameExecutableName ?? "Client.exe").toLowerCase()
+  for (const processInfo of listNativeProcesses()) {
+    if (processInfo.name.toLowerCase() !== executableName) continue
+    const processPath = queryProcessPath(processInfo.pid)
+    if (matchesGameProcess({ ...processInfo, path: processPath }, config)) return true
   }
-} | Select-Object -First 1
-[bool]$found
-`
-  const { stdout } = await runPowerShellScript(script, { timeout: 15000 })
-  return stdout.trim().toLowerCase() === "true"
+  return false
 }
 
 async function runMemoryHelper() {

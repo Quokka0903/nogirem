@@ -1,7 +1,14 @@
 import assert from "node:assert/strict"
+import { execFile } from "node:child_process"
 import { readFile } from "node:fs/promises"
 import test from "node:test"
-import { runPowerShellScript } from "../src/powershell.mjs"
+import { promisify } from "node:util"
+import {
+  resolvePowerShellExecutable,
+  runPowerShellScript,
+} from "../src/powershell.mjs"
+
+const execFileAsync = promisify(execFile)
 
 const [powerShellSource, mainSource, networkSource, nicSource] = await Promise.all([
   readFile(new URL("../src/powershell.mjs", import.meta.url), "utf8"),
@@ -21,6 +28,46 @@ test("런타임 PowerShell 본문은 명령줄 대신 표준입력으로 전달�
   assert.doesNotMatch(nicSource, /powershell\.exe/)
 })
 
+test("Windows PowerShell은 PATH보다 시스템 고정 경로를 우선한다", () => {
+  const expectedPath =
+    "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+  assert.equal(
+    resolvePowerShellExecutable({
+      platform: "win32",
+      environment: {
+        SystemRoot: "C:\\Windows",
+        PATH: "",
+      },
+      fileExists: path => path === expectedPath,
+    }),
+    expectedPath,
+  )
+})
+
+test("PATH에 PowerShell 폴더가 없어도 시스템 고정 경로로 실행한다", {
+  skip: process.platform !== "win32",
+}, async () => {
+  const moduleUrl = new URL("../src/powershell.mjs", import.meta.url).href
+  const childScript = `
+import { runPowerShellScript } from ${JSON.stringify(moduleUrl)}
+const { stdout } = await runPowerShellScript("Write-Output 314")
+process.stdout.write(stdout)
+`
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ["--input-type=module", "--eval", childScript],
+    {
+      env: {
+        ...process.env,
+        PATH: "",
+        Path: "",
+      },
+      windowsHide: true,
+    },
+  )
+  assert.equal(stdout.trim(), "314")
+})
+
 test("메모리와 affinity helper는 PowerShell 없이 직접 분리 실행한다", () => {
   const helperStart = mainSource.indexOf("async function launchDetachedElectronHelper(")
   const helperEnd = mainSource.indexOf("async function stopAffinityHelper()", helperStart)
@@ -31,6 +78,17 @@ test("메모리와 affinity helper는 PowerShell 없이 직접 분리 실행한�
   assert.match(helperSource, /child\.unref\(\)/)
   assert.match(helperSource, /launchMemoryHelper[\s\S]*launchDetachedElectronHelper\(helperArguments\)/)
   assert.match(helperSource, /launchAffinityHelper[\s\S]*launchDetachedElectronHelper\(helperArguments\)/)
+})
+
+test("메모리 helper의 주기적 게임 감지는 네이티브 프로세스 목록을 사용한다", () => {
+  const detectionStart = mainSource.indexOf("async function detectMabinogi()")
+  const detectionEnd = mainSource.indexOf("async function runMemoryHelper()", detectionStart)
+  const detectionSource = mainSource.slice(detectionStart, detectionEnd)
+
+  assert.match(detectionSource, /listNativeProcesses\(\)/)
+  assert.match(detectionSource, /queryProcessPath\(processInfo\.pid\)/)
+  assert.match(detectionSource, /matchesGameProcess\(/)
+  assert.doesNotMatch(detectionSource, /runPowerShellScript|Get-Process|powershell\.exe/i)
 })
 
 test("PowerShell 표준입력 실행 결과를 UTF-8로 반환한다", {
