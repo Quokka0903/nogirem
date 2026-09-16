@@ -5541,22 +5541,24 @@ function resultOf(promise) {
   )
 }
 
+async function getOptimizationStatus() {
+  await frameBoostStartupPromise
+  return Promise.all([
+    resultOf(checkGraphics()),
+    resultOf(checkNetwork()),
+    resultOf(checkAffinity({ refreshNic: true })),
+    resultOf(checkMemory()),
+  ]).then(([graphics, network, affinity, memory]) => ({
+    graphics,
+    nvidia: graphics,
+    network,
+    affinity,
+    memory,
+  }))
+}
+
 function registerIpc() {
-  ipcMain.handle("optimization:get-status", async () => {
-    await frameBoostStartupPromise
-    return Promise.all([
-      resultOf(checkGraphics()),
-      resultOf(checkNetwork()),
-      resultOf(checkAffinity({ refreshNic: true })),
-      resultOf(checkMemory()),
-    ]).then(([graphics, network, affinity, memory]) => ({
-      graphics,
-      nvidia: graphics,
-      network,
-      affinity,
-      memory,
-    }))
-  })
+  ipcMain.handle("optimization:get-status", () => getOptimizationStatus())
   ipcMain.handle("optimization:refresh-graphics", () => checkGraphics())
   ipcMain.handle("optimization:refresh-nvidia", () => checkGraphics())
   ipcMain.handle("optimization:refresh-network", () => checkNetwork())
@@ -5638,11 +5640,16 @@ function registerIpc() {
     if (BrowserWindow.fromWebContents(event.sender) !== primaryWindow) {
       throw new Error("허용되지 않은 실행 상태 요청입니다")
     }
-    await prepareStartupBeforeAnimation("렌더러 준비 요청")
-    const startupMusic = await getStartupMusicSetting()
+    const [startupMusic, optimizationStatus] = await Promise.all([
+      getStartupMusicSetting(),
+      getOptimizationStatus(),
+      prepareStartupBeforeAnimation("렌더러 준비 요청"),
+    ])
     return {
       startupTray: startupTrayLaunch || primaryRendererRecoveryMode,
       startupMusicMuted: startupMusic.muted,
+      optimizationStatus,
+      dxvk: { ...dxvkRuntimeStatus },
     }
   })
   ipcMain.handle("application:set-startup-music-setting", (event, muted) => {
@@ -6298,28 +6305,10 @@ function openDxvkManager(reveal = true) {
     }
     return { action: "deny" }
   })
-  let opacityTimer = null
   let closing = false
   let contentReady = false
   let revealRequested = reveal
   let revealed = false
-  const animateOpacity = (from, to, duration, onComplete) => {
-    clearInterval(opacityTimer)
-    const startedAt = Date.now()
-    opacityTimer = setInterval(() => {
-      if (window.isDestroyed()) {
-        clearInterval(opacityTimer)
-        opacityTimer = null
-        return
-      }
-      const progress = Math.min(1, (Date.now() - startedAt) / duration)
-      window.setOpacity(from + (to - from) * progress)
-      if (progress < 1) return
-      clearInterval(opacityTimer)
-      opacityTimer = null
-      onComplete?.()
-    }, 16)
-  }
   const revealWindow = () => {
     revealRequested = true
     if (!contentReady || revealed || window.isDestroyed()) return
@@ -6328,7 +6317,6 @@ function openDxvkManager(reveal = true) {
     window.setFocusable(true)
     window.setIgnoreMouseEvents(false)
     window.center()
-    window.setOpacity(1)
     window.show()
     window.moveTop()
     window.focus()
@@ -6349,20 +6337,10 @@ function openDxvkManager(reveal = true) {
     event.preventDefault()
     if (closing) return
     closing = true
-    animateOpacity(window.getOpacity(), 0, 300, () => {
-      if (window.isDestroyed()) return
-      window.setOpacity(0)
-      window.setIgnoreMouseEvents(true)
-      window.setFocusable(false)
-      revealed = false
-      revealRequested = false
-      closing = false
-      focusPrimaryWindow()
-    })
+    window.destroy()
   })
   window.on("closed", () => {
     const closedForTray = internalWindowsClosedForTray.delete(window)
-    clearInterval(opacityTimer)
     if (dxvkManagerWindow === window) {
       dxvkManagerWindow = null
       dxvkManagerReveal = null

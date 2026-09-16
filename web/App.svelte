@@ -1465,6 +1465,16 @@
     statusTransitionPhase = "done"
   }
 
+  function applyOptimizationStatus(result) {
+    receiveResult("graphics", result.graphics ?? result.nvidia)
+    receiveResult("network", result.network)
+    receiveResult("affinity", result.affinity)
+    receiveResult("memory", result.memory)
+    if (result.affinity.ok && result.affinity.data.running) {
+      includeNic = result.affinity.data.includeNic
+    }
+  }
+
   async function loadAll() {
     refreshing = true
     services = {
@@ -1474,14 +1484,7 @@
       memory: { ...services.memory, loading: true, error: null },
     }
     try {
-      const result = await window.nogirem.getStatus()
-      receiveResult("graphics", result.graphics ?? result.nvidia)
-      receiveResult("network", result.network)
-      receiveResult("affinity", result.affinity)
-      receiveResult("memory", result.memory)
-      if (result.affinity.ok && result.affinity.data.running) {
-        includeNic = result.affinity.data.includeNic
-      }
+      applyOptimizationStatus(await window.nogirem.getStatus())
     } catch (error) {
       const message = messageOf(error)
       updateService("graphics", { loading: false, error: message })
@@ -1898,7 +1901,6 @@
       .finally(() => {
         blackboxSettingLoaded = true
       })
-    void loadAll()
   }
 
   onMount(() => {
@@ -1938,6 +1940,17 @@
     void window.nogirem.getLaunchContext()
       .catch(() => ({ startupTray: false, startupMusicMuted: false }))
       .then(launchContext => {
+        if (launchContext.optimizationStatus) {
+          applyOptimizationStatus(launchContext.optimizationStatus)
+        }
+        if (launchContext.dxvk) {
+          updateService("affinity", {
+            data: {
+              ...services.affinity.data,
+              dxvk: launchContext.dxvk,
+            },
+          })
+        }
         startupMusicMuted = Boolean(launchContext.startupMusicMuted)
         startupMusicSettingLoaded = true
         gameWave?.setStartupMuted(startupMusicMuted)

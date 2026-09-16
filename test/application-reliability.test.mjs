@@ -353,7 +353,7 @@ test("시작 애니메이션은 오디오 정체와 분리하고 무거운 초�
   assert.match(electronPreload, /completeStartupAnimation/)
   assert.match(
     electronMain,
-    /application:get-launch-context[\s\S]*await prepareStartupBeforeAnimation\("렌더러 준비 요청"\)[\s\S]*getStartupMusicSetting\(\)/,
+    /application:get-launch-context[\s\S]*Promise\.all\(\[[\s\S]*getOptimizationStatus\(\)[\s\S]*prepareStartupBeforeAnimation\("렌더러 준비 요청"\)[\s\S]*optimizationStatus/,
   )
   assert.match(
     electronMain,
@@ -370,6 +370,14 @@ test("시작 애니메이션은 오디오 정체와 분리하고 무거운 초�
   assert.match(
     applicationView,
     /const startupState = await window\.nogirem\.completeStartupAnimation\(\)[\s\S]*dxvk: startupState\.dxvk/,
+  )
+  assert.match(
+    applicationView,
+    /launchContext\.optimizationStatus[\s\S]*applyOptimizationStatus\(launchContext\.optimizationStatus\)[\s\S]*gameWave\?\.allowStartup\(\)/,
+  )
+  assert.doesNotMatch(
+    applicationView,
+    /function loadDeferredStartupData\(\)[\s\S]*loadAll\(\)[\s\S]*onMount/,
   )
   assert.match(
     electronMain,

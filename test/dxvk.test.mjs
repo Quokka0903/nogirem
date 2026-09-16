@@ -280,7 +280,7 @@ test("관리 창의 확인·설치 완료 상태를 메인 화면에 즉시 전�
   assert.doesNotMatch(dxvkManagerWindowSource, /show: false,\s*opacity: 0/)
   assert.match(
     dxvkManagerWindowSource,
-    /const revealWindow = \(\) => \{[\s\S]*window\.setOpacity\(1\)[\s\S]*window\.show\(\)/,
+    /const revealWindow = \(\) => \{[\s\S]*window\.show\(\)[\s\S]*window\.focus\(\)/,
   )
   assert.match(
     dxvkManagerWindowSource,
@@ -303,7 +303,7 @@ test("관리 창의 확인·설치 완료 상태를 메인 화면에 즉시 전�
   assert.match(managerSource, /const generation = statusGeneration[\s\S]*generation === statusGeneration/)
   assert.match(
     dxvkManagerWindowSource,
-    /window\.on\("close"[\s\S]*event\.preventDefault\(\)[\s\S]*window\.setOpacity\(0\)[\s\S]*window\.setIgnoreMouseEvents\(true\)[\s\S]*window\.setFocusable\(false\)[\s\S]*revealed = false/,
+    /window\.on\("close"[\s\S]*event\.preventDefault\(\)[\s\S]*closing = true[\s\S]*window\.destroy\(\)/,
   )
   assert.doesNotMatch(
     managerSource,
