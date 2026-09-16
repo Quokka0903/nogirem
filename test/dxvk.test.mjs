@@ -279,7 +279,7 @@ test("관리 창의 확인·설치 완료 상태를 메인 화면에 즉시 전�
   assert.match(dxvkManagerWindowSource, /show: false,\s*opacity: 0/)
   assert.match(
     dxvkManagerWindowSource,
-    /const revealWindow = \(\) => \{[\s\S]*window\.show\(\)[\s\S]*animateOpacity\(0, 1, 300\)/,
+    /const revealWindow = async \(\) => \{[\s\S]*window\.showInactive\(\)[\s\S]*requestAnimationFrame\(\(\) => requestAnimationFrame\(resolve\)\)[\s\S]*animateOpacity\(0, 1, 300\)/,
   )
   assert.match(
     dxvkManagerWindowSource,
@@ -289,13 +289,17 @@ test("관리 창의 확인·설치 완료 상태를 메인 화면에 즉시 전�
   assert.match(dxvkManagerWindowSource, /function openDxvkManager\(reveal = true\)/)
   assert.match(
     dxvkManagerWindowSource,
-    /contentReady = true[\s\S]*if \(revealRequested\) revealWindow\(\)/,
+    /contentReady = true[\s\S]*if \(revealRequested\) void revealWindow\(\)/,
   )
   assert.doesNotMatch(
     mainSource,
     /function beginDeferredStartupInitialization\(reason\)[\s\S]*openDxvkManager\(false\)/,
   )
-  assert.match(managerSource, /void loadInstalled\(\)\.then\(checkUpdate\)/)
+  assert.match(
+    managerSource,
+    /void loadInstalled\(\)[\s\S]*requestAnimationFrame\(\(\) => \{[\s\S]*void checkUpdate\(\)/,
+  )
+  assert.match(managerSource, /const generation = statusGeneration[\s\S]*generation === statusGeneration/)
   assert.match(
     dxvkManagerWindowSource,
     /window\.on\("close"[\s\S]*event\.preventDefault\(\)[\s\S]*window\.hide\(\)[\s\S]*revealed = false[\s\S]*revealRequested = false/,

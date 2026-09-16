@@ -764,7 +764,15 @@
   async function handleStartupIdle() {
     if (deferredStartupStarted) return
     deferredStartupStarted = true
-    await window.nogirem.completeStartupAnimation().catch(() => {})
+    const startupState = await window.nogirem.completeStartupAnimation().catch(() => null)
+    if (startupState?.dxvk) {
+      updateService("affinity", {
+        data: {
+          ...services.affinity.data,
+          dxvk: startupState.dxvk,
+        },
+      })
+    }
     loadDeferredStartupData()
   }
 

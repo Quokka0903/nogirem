@@ -290,6 +290,7 @@
       let busy = false
       let lastStatus = null
       let selectionChangedByUser = false
+      let statusGeneration = 0
 
       function selectedRelease() {
         return lastStatus?.releases?.find(release => release.version === versionSelect.value)
@@ -412,8 +413,10 @@
       }
 
       async function loadInstalled() {
+        const generation = statusGeneration
         try {
-          render(await window.dxvkManager.getStatus())
+          const status = await window.dxvkManager.getStatus()
+          if (generation === statusGeneration) render(status)
         } catch (error) {
           message.classList.add("error")
           message.textContent = errorMessage(error)
@@ -421,6 +424,7 @@
       }
 
       async function checkUpdate() {
+        statusGeneration += 1
         setBusy(true, "GitHub에서 최신 정식 릴리즈를 확인하고 있습니다")
         try {
           render(await window.dxvkManager.checkUpdate())
@@ -480,7 +484,12 @@
             ? `${selected.version} 버전을 마비노기 폴더에 적용할 수 있습니다`
             : `${selected.version} 버전이 마비노기에 적용되어 있습니다`
       })
-      void loadInstalled().then(checkUpdate)
+      void loadInstalled()
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          void checkUpdate()
+        })
+      })
     </script>
   </body>
 </html>

@@ -365,6 +365,14 @@ test("시작 애니메이션은 오디오 정체와 분리하고 무거운 초�
   )
   assert.match(
     electronMain,
+    /application:complete-startup-animation[\s\S]*return \{ dxvk: \{ \.\.\.dxvkRuntimeStatus \} \}/,
+  )
+  assert.match(
+    applicationView,
+    /const startupState = await window\.nogirem\.completeStartupAnimation\(\)[\s\S]*dxvk: startupState\.dxvk/,
+  )
+  assert.match(
+    electronMain,
     /beginDeferredStartupInitialization\("렌더러 완료 신호 대기 시간 초과"\)[\s\S]*10000/,
   )
 })

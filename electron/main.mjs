@@ -191,7 +191,7 @@ let characterGuideDrag = null
 let dxvkGuideDrag = null
 let dxvkUpdatePromise = null
 let dxvkRuntimeStatus = {
-  state: "checking",
+  state: "unavailable",
   latestVersion: null,
   error: null,
 }
@@ -5633,7 +5633,7 @@ function registerIpc() {
       throw new Error("허용되지 않은 시작 완료 요청입니다")
     }
     await beginDeferredStartupInitialization("렌더러 애니메이션 완료")
-    return true
+    return { dxvk: { ...dxvkRuntimeStatus } }
   })
   ipcMain.handle("application:get-launch-context", async event => {
     if (BrowserWindow.fromWebContents(event.sender) !== primaryWindow) {
@@ -6285,6 +6285,7 @@ function openDxvkManager(reveal = true) {
       sandbox: true,
     },
   })
+  window.webContents.setBackgroundThrottling(false)
   window.webContents.once("dom-ready", () => {
     writeStartupLog(`Vulkan 관리 창 DOM 준비 ${Date.now() - openedAt}ms`)
   })
@@ -6303,6 +6304,7 @@ function openDxvkManager(reveal = true) {
   let contentReady = false
   let revealRequested = reveal
   let revealed = false
+  let revealGeneration = 0
   const animateOpacity = (from, to, duration, onComplete) => {
     clearInterval(opacityTimer)
     const startedAt = Date.now()
@@ -6320,19 +6322,33 @@ function openDxvkManager(reveal = true) {
       onComplete?.()
     }, 16)
   }
-  const revealWindow = () => {
+  const revealWindow = async () => {
     revealRequested = true
     if (!contentReady || revealed || window.isDestroyed()) return
+    const generation = ++revealGeneration
     revealed = true
     if (window.isMinimized()) window.restore()
     window.setIgnoreMouseEvents(false)
     window.center()
-    window.show()
+    window.setOpacity(0)
+    window.showInactive()
+    await window.webContents.executeJavaScript(`
+      new Promise(resolve => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve))
+      })
+    `).catch(() => {})
+    if (
+      window.isDestroyed()
+      || !revealed
+      || generation !== revealGeneration
+    ) return
     window.moveTop()
     window.focus()
     animateOpacity(0, 1, 300)
   }
-  dxvkManagerReveal = revealWindow
+  dxvkManagerReveal = () => {
+    void revealWindow()
+  }
   window.once("ready-to-show", () => {
     if (window.isDestroyed()) return
     writeStartupLog(`Vulkan 관리 창 표시 준비 ${Date.now() - openedAt}ms`)
@@ -6352,6 +6368,7 @@ function openDxvkManager(reveal = true) {
       if (window.isDestroyed()) return
       window.hide()
       window.setOpacity(0)
+      revealGeneration += 1
       revealed = false
       revealRequested = false
       closing = false
@@ -6385,7 +6402,7 @@ function openDxvkManager(reveal = true) {
       if (window.isDestroyed()) return
       writeStartupLog(`Vulkan 관리 창 렌더링 완료 ${Date.now() - openedAt}ms`)
       contentReady = true
-      if (revealRequested) revealWindow()
+      if (revealRequested) void revealWindow()
     })
     .catch(error => showWindowLoadError(window, error))
     .catch(error => console.error("DXVK 관리 화면 로드 실패", error))
@@ -6881,10 +6898,11 @@ function beginDeferredStartupInitialization(reason) {
       .catch(error => console.error("DXVK 릴리스 캐시 로드 실패", error))
     await loadCachedDxvkRuntimeStatus().catch(error => {
       dxvkRuntimeStatus = {
-        state: "checking",
+        state: "unavailable",
         latestVersion: null,
         error: serializeError(error),
       }
+      notifyDxvkRuntimeStatusChanged()
     })
     void refreshDxvkRuntimeStatus().finally(scheduleDxvkRuntimeRefresh)
     await installCharacterSimplificationFile()
