@@ -222,6 +222,14 @@ test("관리 창의 확인·설치 완료 상태를 메인 화면에 즉시 전�
     mainSource,
     /const status = await dxvkRuntimeCheckPromise\s+notifyDxvkRuntimeStatusChanged\(\)\s+return status/,
   )
+  assert.match(
+    mainSource,
+    /async function loadCachedDxvkRuntimeStatus\(\)[\s\S]*evaluateLocalDxvkRuntimeStatus\(\)[\s\S]*notifyDxvkRuntimeStatusChanged\(\)/,
+  )
+  assert.doesNotMatch(
+    mainSource,
+    /const previousStatus = dxvkRuntimeStatus[\s\S]{0,300}state: "checking"/,
+  )
   assert.match(preloadSource, /onDxvkStatusChanged/)
   assert.match(preloadSource, /getDxvkRuntimeStatus/)
   assert.match(mainSource, /optimization:get-dxvk-runtime-status/)
@@ -283,7 +291,7 @@ test("관리 창의 확인·설치 완료 상태를 메인 화면에 즉시 전�
     dxvkManagerWindowSource,
     /contentReady = true[\s\S]*if \(revealRequested\) revealWindow\(\)/,
   )
-  assert.match(
+  assert.doesNotMatch(
     mainSource,
     /function beginDeferredStartupInitialization\(reason\)[\s\S]*openDxvkManager\(false\)/,
   )

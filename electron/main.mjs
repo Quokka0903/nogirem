@@ -5206,8 +5206,12 @@ async function loadCachedDxvkRuntimeStatus() {
     !latest?.version
     || !/^v\d+(?:\.\d+){1,3}$/.test(latest.version)
     || !/^[a-f0-9]{64}$/i.test(latest.archiveSha256 ?? "")
-  ) return dxvkRuntimeStatus
-  dxvkRuntimeStatus = await evaluateDxvkRuntimeStatus(latest)
+  ) {
+    dxvkRuntimeStatus = await evaluateLocalDxvkRuntimeStatus()
+  } else {
+    dxvkRuntimeStatus = await evaluateDxvkRuntimeStatus(latest)
+  }
+  notifyDxvkRuntimeStatusChanged()
   return dxvkRuntimeStatus
 }
 
@@ -5217,13 +5221,6 @@ async function refreshDxvkRuntimeStatus({ force = false } = {}) {
     await dxvkRuntimeCheckPromise
   }
   const previousStatus = dxvkRuntimeStatus
-  if (!["latest", "update-required"].includes(previousStatus.state)) {
-    dxvkRuntimeStatus = {
-      state: "checking",
-      latestVersion: previousStatus.latestVersion,
-      error: null,
-    }
-  }
   dxvkRuntimeCheckPromise = (async () => {
     try {
       const [latest] = await getCachedDxvkReleases()
@@ -6873,6 +6870,7 @@ function beginDeferredStartupInitialization(reason) {
   if (deferredStartupInitializationPromise) return deferredStartupInitializationPromise
   writeStartupLog(`지연 초기화 시작 (${reason})`)
   deferredStartupInitializationPromise = (async () => {
+    await delay(500)
     await mabinogiPathInitializationPromise
     await ensureBlackboxStarted()
       .catch(error => console.error("블랙박스 녹화 자동 실행 실패", error))
@@ -6888,13 +6886,6 @@ function beginDeferredStartupInitialization(reason) {
         error: serializeError(error),
       }
     })
-    if (
-      primaryWindow
-      && !primaryWindow.isDestroyed()
-      && !applicationExitInProgress
-    ) {
-      openDxvkManager(false)
-    }
     void refreshDxvkRuntimeStatus().finally(scheduleDxvkRuntimeRefresh)
     await installCharacterSimplificationFile()
       .catch(error => console.error("주변 캐릭터 간소화 파일 설치 실패", error))

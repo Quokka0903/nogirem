@@ -353,7 +353,11 @@ test("시작 애니메이션은 오디오 정체와 분리하고 무거운 초�
   )
   assert.match(
     electronMain,
-    /function beginDeferredStartupInitialization\(reason\)[\s\S]*await ensureBlackboxStarted\(\)[\s\S]*await loadCachedDxvkReleases\(\)[\s\S]*openDxvkManager\(false\)/,
+    /function beginDeferredStartupInitialization\(reason\)[\s\S]*await delay\(500\)[\s\S]*await ensureBlackboxStarted\(\)[\s\S]*await loadCachedDxvkReleases\(\)/,
+  )
+  assert.doesNotMatch(
+    electronMain,
+    /function beginDeferredStartupInitialization\(reason\)[\s\S]*openDxvkManager\(false\)[\s\S]*function internalWindows\(\)/,
   )
   assert.match(
     electronMain,
