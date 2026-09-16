@@ -291,7 +291,7 @@ test("관리 창의 확인·설치 완료 상태를 메인 화면에 즉시 전�
   assert.match(mainSource, /ipcMain\.on\("dxvk:content-ready"[\s\S]*dxvkManagerContentReady\?\.\(\)/)
   assert.match(
     managerSource,
-    /async function revealContent\(\)[\s\S]*image\.decode\(\)[\s\S]*requestAnimationFrame\(\(\) => requestAnimationFrame\(resolve\)\)[\s\S]*contentReady\(\{[\s\S]*void loadInstalled\(\)/,
+    /async function revealContent\(\)[\s\S]*image\.decode\(\)[\s\S]*await loadInstalled\(\)[\s\S]*requestAnimationFrame\(\(\) => requestAnimationFrame\(resolve\)\)[\s\S]*contentReady\(\{/,
   )
   assert.match(mainSource, /let dxvkManagerReveal = null/)
   assert.match(dxvkManagerWindowSource, /function openDxvkManager\(reveal = true\)/)
@@ -303,7 +303,7 @@ test("관리 창의 확인·설치 완료 상태를 메인 화면에 즉시 전�
     mainSource,
     /function prepareStartupBeforeAnimation\(reason\)[\s\S]*openDxvkManager\(false\)/,
   )
-  assert.match(managerSource, /contentReady\(\{[\s\S]*void loadInstalled\(\)/)
+  assert.doesNotMatch(managerSource, /contentReady\(\{[\s\S]{0,300}loadInstalled\(\)/)
   assert.doesNotMatch(
     managerSource,
     /void loadInstalled\(\)[\s\S]{0,180}void checkUpdate\(\)/,
@@ -311,6 +311,14 @@ test("관리 창의 확인·설치 완료 상태를 메인 화면에 즉시 전�
   assert.match(
     mainSource,
     /async function getDxvkManagerStatus[\s\S]*let releases = dxvkReleasesCache/,
+  )
+  assert.match(
+    mainSource,
+    /const runtimeStatus = await refreshDxvkRuntimeStatus\(\{ force: true \}\)[\s\S]*runtimeStatus,/,
+  )
+  assert.match(
+    managerSource,
+    /const status = await window\.dxvkManager\.checkUpdate\(\)[\s\S]*!status\.deployment\?\.matchesCurrent[\s\S]*설치 직후 게임 폴더의 DXVK 적용 파일을 확인할 수 없습니다/,
   )
   assert.match(managerSource, /const generation = statusGeneration[\s\S]*generation === statusGeneration/)
   assert.match(

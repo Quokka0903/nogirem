@@ -5354,10 +5354,18 @@ async function updateDxvk(version) {
   })()
   try {
     const result = await dxvkUpdatePromise
-    await refreshDxvkRuntimeStatus({ force: true })
+    const runtimeStatus = await refreshDxvkRuntimeStatus({ force: true })
+    writeStartupLog(
+      `Vulkan 설치 후 상태 ${JSON.stringify({
+        version,
+        deployment: result.deployment,
+        runtimeStatus,
+      })}`,
+    )
     return {
       ...result,
       storagePath: getDxvkDirectory(),
+      runtimeStatus,
     }
   } catch (error) {
     if (await detectMabinogi().catch(() => false)) {
