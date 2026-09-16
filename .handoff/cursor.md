@@ -1,12 +1,12 @@
 # Cursor AI Handoff
 
-Last Updated: 2026-09-16 12:00
+Last Updated: 2026-09-16 12:10
 
 ## Current Objective
 0.3.15 시작 준비 순서와 Vulkan 관리 창 표시 변경을 사용자 환경에서 검증한다.
 
 ## Current Status
-- 관리 창은 `loadInstalled()`가 캐시·설치·게임 적용 상태를 렌더한 뒤에만 `content-ready`를 보내므로 정적 `확인 전` 셀렉터가 fade 중 노출되지 않는다. 현재 저장본과 최신 캐시는 v3.1.1로 일치하지만 `C:\Nexon\Mabinogi\d3d9_dxvk.dll`이 실제로 없어 메인 `업데이트 필요` 상태는 디스크 판정과 일치한다. 설치 직후 상태 재조회에서 파일이 없거나 무결성·선택 버전·배포가 불일치하면 더 이상 성공 문구를 덮어쓰지 않고 오류를 표시한다. `updateDxvk()`는 확정 runtime 상태와 배포 결과를 로그에 기록하고 primary renderer 이벤트로 전달한다. DXVK 테스트 11개와 Vite 빌드가 통과했다.
+- 사용자 지정 기준인 커밋 `952f50b`의 Vulkan 표시·데이터 로직으로 복원했다. transparent layered BrowserWindow와 `content-ready → fade-in → loadInstalled()` 순서, 설치 후 기존 상태 갱신 동작을 그대로 사용한다. 차이는 일반 닫기에서 파괴하지 않고 300ms fade-out 뒤 `hide()`해 같은 BrowserWindow·renderer·캐시 상태를 유지하는 점뿐이다. 재열기는 `show()` 후 300ms fade-in하며 앱 종료·트레이 정리에서만 실제 파괴한다.
 - Vulkan 관리 창은 앱 시작 때 이미 로드한 `dxvkReleasesCache`를 최초 `getStatus()` 응답에 포함한다. 창 HTML이 열릴 때마다 자동 호출하던 `checkUpdate()`를 제거해 재열기마다 셀렉터가 `확인 전`으로 초기화되고 GitHub 확인이 반복되는 경로를 없앴다. 온라인 릴리스 확인은 기존 앱 시작 및 6분 주기 갱신에서만 실행하며 설치 직후 재확인은 유지한다. DXVK 테스트 11개와 Vite 빌드가 통과했다.
 - Vulkan 창의 `capturePage()`가 GPU readback에서 1.9초를 소모한 직접 원인이어서 제거했다. 추가 계측에서 HTML 이미지 decode 0ms·두 프레임 16~17ms, 콘텐츠 준비 69~72ms, show 반환 77~82ms, fade 완료 388~390ms로 앱 내부에는 더 이상 1초 구간이 없었다. HTML의 전용 `content-ready` 신호 전에는 표시하지 않고 모든 단계를 시작 로그에 기록한다. 이후 남은 검은 surface는 불투명 frameless 창의 Windows 합성 경로로 좁혀져, 주변 캐릭터 창과 같은 transparent layered BrowserWindow에서 기존 검은 manager 배경과 내용을 함께 합성하도록 변경했다. fade-in/out은 각각 300ms로 유지한다. 시작 상태 병렬화에서 메모리를 helper 준비 522ms 전에 읽어 이전 `running:false`를 전달한 회귀도 수정했다. 메모리·CPU·NIC는 frame boost 준비 뒤 조회하고 재실행 상태 파일에서 affinity와 memory 모두 `running:true`를 확인했다.
 - recorder·DXVK·간소화 파일뿐 아니라 그래픽·네트워크·NIC·메모리 전체 확인도 `application:get-launch-context` 안에서 완료한다. renderer는 이 결과와 최종 DXVK 상태를 적용한 뒤에만 `gameWave.allowStartup()`을 호출하고, 애니메이션 뒤 `loadAll()` 중복 조회는 제거했다.

@@ -458,15 +458,7 @@
         setBusy(true, "DXVK 다운로드·검증 및 마비노기 폴더 적용을 진행하고 있습니다")
         try {
           await window.dxvkManager.installUpdate(version)
-          const status = await window.dxvkManager.checkUpdate()
-          render(status)
-          if (
-            !status.installed?.integrity
-            || status.installed.current?.version !== version
-            || !status.deployment?.matchesCurrent
-          ) {
-            throw new Error("설치 직후 게임 폴더의 DXVK 적용 파일을 확인할 수 없습니다")
-          }
+          render(await window.dxvkManager.checkUpdate())
           message.classList.remove("error")
           message.textContent = `${version} 검증과 d3d9_dxvk.dll 적용이 완료되었습니다`
         } catch (error) {
@@ -499,18 +491,16 @@
           Array.from(document.images, image => image.decode().catch(() => {})),
         )
         const imagesReadyAt = performance.now()
-        await loadInstalled()
-        const statusReadyAt = performance.now()
         await new Promise(resolve => {
           requestAnimationFrame(() => requestAnimationFrame(resolve))
         })
         const framesReadyAt = performance.now()
         window.dxvkManager.contentReady({
           imageDecodeMs: Math.round(imagesReadyAt - startedAt),
-          statusLoadMs: Math.round(statusReadyAt - imagesReadyAt),
-          frameWaitMs: Math.round(framesReadyAt - statusReadyAt),
+          frameWaitMs: Math.round(framesReadyAt - imagesReadyAt),
           totalMs: Math.round(framesReadyAt - startedAt),
         })
+        void loadInstalled()
       }
 
       void revealContent()

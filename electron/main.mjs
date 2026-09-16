@@ -5354,18 +5354,10 @@ async function updateDxvk(version) {
   })()
   try {
     const result = await dxvkUpdatePromise
-    const runtimeStatus = await refreshDxvkRuntimeStatus({ force: true })
-    writeStartupLog(
-      `Vulkan 설치 후 상태 ${JSON.stringify({
-        version,
-        deployment: result.deployment,
-        runtimeStatus,
-      })}`,
-    )
+    await refreshDxvkRuntimeStatus({ force: true })
     return {
       ...result,
       storagePath: getDxvkDirectory(),
-      runtimeStatus,
     }
   } catch (error) {
     if (await detectMabinogi().catch(() => false)) {
@@ -6403,7 +6395,15 @@ function openDxvkManager(reveal = true) {
     if (closing) return
     closing = true
     animateOpacity(window.getOpacity(), 0, 300, () => {
-      if (!window.isDestroyed()) window.destroy()
+      if (window.isDestroyed()) return
+      window.hide()
+      window.setOpacity(0)
+      window.setIgnoreMouseEvents(true)
+      window.setFocusable(false)
+      revealed = false
+      revealRequested = false
+      closing = false
+      focusPrimaryWindow()
     })
   })
   window.on("closed", () => {
