@@ -20,6 +20,7 @@
 - `WH_MOUSE_LL`에서 휠 메시지를 소비해도 마비노기의 Raw Input·DirectInput 경로에는 실제 조합이 전달된다. 보조 키 release·press 주입으로 우회하는 방식도 효과가 없고 키 상태만 불안정하게 만들 수 있어 관련 키보드 hook과 입력 주입을 제거했다. Ctrl·Alt+휠 커서 조절은 유지하지만 같은 입력이 게임에도 전달된다.
 - Alt+Enter 방지용 `WH_KEYBOARD_LL` hook이 50ms 상태 polling loop와 같은 스레드에 설치돼 Windows가 모든 키 이벤트의 callback 반환을 기다렸고, Ctrl·Alt를 떼도 key-up이 수초 동안 밀릴 수 있었다. Alt+Enter 판정은 유지하되 키보드 hook을 독립 `GetMessage` 스레드로 분리해 Enter 이외 입력을 즉시 통과시킨다. helper 활성 상태에서 주입 키 이벤트 400개는 678ms로 처리됐으며 helper가 없을 때의 505ms와 비교해 이벤트당 추가 지연은 약 0.43ms였다.
 - 앱과 lockfile 버전을 0.3.14로 올리고 Node 테스트 169개, 네이티브 helper 4종 Release 빌드, Vite 빌드와 Windows x64 NSIS 패키징을 완료했다. 설치본은 97,269,508바이트·SHA-256 `63DA7682…7C54FA`, blockmap은 103,117바이트·`D2E50BF4…738E32`, `latest.yml`은 345바이트·`28003F7B…A269CE`, 터보 키 자산은 291,840바이트·`D9504362…16A857`이다. 설치본·ASAR 버전과 업데이트 메타데이터 및 패키지 내부 helper 무결성이 모두 일치한다.
+- 배포 커밋 `925607d`와 태그 `v0.3.14`를 원격에 push하고 [GitHub Release](https://github.com/rubystarashe/nogirem/releases/tag/v0.3.14)로 정식 공개했다. Release는 draft·prerelease가 아니며 네 자산의 원격 크기와 SHA-256 digest가 로컬 파일과 모두 일치하고 공개 다운로드 URL도 HTTP 200이다.
 
 ## 0.3.13
 
