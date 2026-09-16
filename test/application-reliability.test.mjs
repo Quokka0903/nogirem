@@ -340,7 +340,7 @@ test("시작 애니메이션은 오디오 정체와 분리하고 무거운 초�
   )
   assert.match(
     applicationView,
-    /function handleStartupIdle\(\)[\s\S]*completeStartupAnimation\(\)[\s\S]*loadDeferredStartupData\(\)/,
+    /async function handleStartupIdle\(\)[\s\S]*await window\.nogirem\.completeStartupAnimation\(\)[\s\S]*loadDeferredStartupData\(\)/,
   )
   assert.match(
     gameWave,
@@ -353,7 +353,11 @@ test("시작 애니메이션은 오디오 정체와 분리하고 무거운 초�
   )
   assert.match(
     electronMain,
-    /function beginDeferredStartupInitialization\(reason\)[\s\S]*ensureBlackboxStarted\(\)[\s\S]*openDxvkManager\(false\)/,
+    /function beginDeferredStartupInitialization\(reason\)[\s\S]*await ensureBlackboxStarted\(\)[\s\S]*await loadCachedDxvkReleases\(\)[\s\S]*openDxvkManager\(false\)/,
+  )
+  assert.match(
+    electronMain,
+    /application:complete-startup-animation[\s\S]*await beginDeferredStartupInitialization\("렌더러 애니메이션 완료"\)/,
   )
   assert.match(
     electronMain,

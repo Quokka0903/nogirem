@@ -240,6 +240,7 @@ let blackboxLastKnownStorageSummary = null
 let approvedBlackboxClipStoragePath = ""
 let blackboxStorageDrives = []
 let blackboxStorageDrivesCheckedAt = 0
+let blackboxStorageDrivesPromise = null
 let blackboxLogOperation = Promise.resolve()
 let lastLoggedBlackboxStatusError = ""
 let lastLoggedBlackboxRuntimeState = ""
@@ -479,31 +480,33 @@ async function listBlackboxStorageDrives() {
     blackboxStorageDrives.length
     && Date.now() - blackboxStorageDrivesCheckedAt < 5 * 60 * 1000
   ) return blackboxStorageDrives
+  if (blackboxStorageDrivesPromise) return blackboxStorageDrivesPromise
 
-  const script = [
-    "$drives = @(Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType -in 2, 3 } | Select-Object DeviceID, FreeSpace)",
-    "$drives | ConvertTo-Json -Compress",
-  ].join("\n")
-  try {
-    const { stdout } = await runPowerShellScript(script, { timeout: 10000 })
-    const parsed = JSON.parse(stdout || "[]")
-    blackboxStorageDrives = (Array.isArray(parsed) ? parsed : [parsed])
-      .map(drive => ({
-        id: String(drive?.DeviceID ?? "").toUpperCase(),
-        freeBytes: Math.max(0, Number(drive?.FreeSpace) || 0),
-      }))
-      .filter(drive => /^[A-Z]:$/.test(drive.id))
-      .sort((left, right) => left.id.localeCompare(right.id))
-  } catch {
-    blackboxStorageDrives = []
-  }
-  if (!blackboxStorageDrives.length) {
-    const defaultDrive = /^[A-Za-z]:/.exec(getBlackboxPaths().storagePath)?.[0]?.toUpperCase()
-      ?? "C:"
-    blackboxStorageDrives = [{ id: defaultDrive, freeBytes: 0 }]
-  }
-  blackboxStorageDrivesCheckedAt = Date.now()
-  return blackboxStorageDrives
+  blackboxStorageDrivesPromise = (async () => {
+    try {
+      const output = await runRecorderUtility(["--mode=drives"])
+      const parsed = JSON.parse(output || "[]")
+      blackboxStorageDrives = (Array.isArray(parsed) ? parsed : [parsed])
+        .map(drive => ({
+          id: String(drive?.id ?? "").toUpperCase(),
+          freeBytes: Math.max(0, Number(drive?.freeBytes) || 0),
+        }))
+        .filter(drive => /^[A-Z]:$/.test(drive.id))
+        .sort((left, right) => left.id.localeCompare(right.id))
+    } catch {
+      blackboxStorageDrives = []
+    }
+    if (!blackboxStorageDrives.length) {
+      const defaultDrive = /^[A-Za-z]:/.exec(getBlackboxPaths().storagePath)?.[0]?.toUpperCase()
+        ?? "C:"
+      blackboxStorageDrives = [{ id: defaultDrive, freeBytes: 0 }]
+    }
+    blackboxStorageDrivesCheckedAt = Date.now()
+    return blackboxStorageDrives
+  })().finally(() => {
+    blackboxStorageDrivesPromise = null
+  })
+  return blackboxStorageDrivesPromise
 }
 
 async function getCurrentBlackboxStorageLocations() {
@@ -5628,11 +5631,11 @@ function registerIpc() {
       beginPrimaryWindowReveal()
     }
   })
-  ipcMain.handle("application:complete-startup-animation", event => {
+  ipcMain.handle("application:complete-startup-animation", async event => {
     if (BrowserWindow.fromWebContents(event.sender) !== primaryWindow) {
       throw new Error("허용되지 않은 시작 완료 요청입니다")
     }
-    void beginDeferredStartupInitialization("렌더러 애니메이션 완료")
+    await beginDeferredStartupInitialization("렌더러 애니메이션 완료")
     return true
   })
   ipcMain.handle("application:get-launch-context", async event => {
@@ -6871,33 +6874,30 @@ function beginDeferredStartupInitialization(reason) {
   writeStartupLog(`지연 초기화 시작 (${reason})`)
   deferredStartupInitializationPromise = (async () => {
     await mabinogiPathInitializationPromise
-    const blackboxInitialization = ensureBlackboxStarted()
+    await ensureBlackboxStarted()
       .catch(error => console.error("블랙박스 녹화 자동 실행 실패", error))
       .then(() => {
         writeStartupLog("블랙박스 녹화 초기화 처리 종료")
       })
-    const backgroundInitialization = (async () => {
-      await loadCachedDxvkReleases()
-        .catch(error => console.error("DXVK 릴리스 캐시 로드 실패", error))
-      await loadCachedDxvkRuntimeStatus().catch(error => {
-        dxvkRuntimeStatus = {
-          state: "checking",
-          latestVersion: null,
-          error: serializeError(error),
-        }
-      })
-      if (
-        primaryWindow
-        && !primaryWindow.isDestroyed()
-        && !applicationExitInProgress
-      ) {
-        openDxvkManager(false)
+    await loadCachedDxvkReleases()
+      .catch(error => console.error("DXVK 릴리스 캐시 로드 실패", error))
+    await loadCachedDxvkRuntimeStatus().catch(error => {
+      dxvkRuntimeStatus = {
+        state: "checking",
+        latestVersion: null,
+        error: serializeError(error),
       }
-      void refreshDxvkRuntimeStatus().finally(scheduleDxvkRuntimeRefresh)
-      await installCharacterSimplificationFile()
-        .catch(error => console.error("주변 캐릭터 간소화 파일 설치 실패", error))
-    })()
-    await Promise.all([blackboxInitialization, backgroundInitialization])
+    })
+    if (
+      primaryWindow
+      && !primaryWindow.isDestroyed()
+      && !applicationExitInProgress
+    ) {
+      openDxvkManager(false)
+    }
+    void refreshDxvkRuntimeStatus().finally(scheduleDxvkRuntimeRefresh)
+    await installCharacterSimplificationFile()
+      .catch(error => console.error("주변 캐릭터 간소화 파일 설치 실패", error))
     writeStartupLog("지연 초기화 완료")
   })()
   return deferredStartupInitializationPromise

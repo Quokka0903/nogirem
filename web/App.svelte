@@ -761,12 +761,11 @@
     }, 250)
   }
 
-  function handleStartupIdle() {
-    if (!deferredStartupStarted) {
-      deferredStartupStarted = true
-      void window.nogirem.completeStartupAnimation().catch(() => {})
-      loadDeferredStartupData()
-    }
+  async function handleStartupIdle() {
+    if (deferredStartupStarted) return
+    deferredStartupStarted = true
+    await window.nogirem.completeStartupAnimation().catch(() => {})
+    loadDeferredStartupData()
   }
 
   function finishStartupIdentityTransition() {

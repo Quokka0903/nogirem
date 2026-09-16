@@ -685,7 +685,14 @@ test("고정 시점 블랙박스 추출 편집 창과 구간 remux가 연결된�
     /if \(drive === defaultDrive\) return join\(paths\.storagePath, "Ring"\)/,
   )
   assert.match(mainSource, /function resolveBlackboxClipStoragePath\(/)
-  assert.match(mainSource, /Get-CimInstance Win32_LogicalDisk/)
+  assert.doesNotMatch(mainSource, /Get-CimInstance Win32_LogicalDisk/)
+  assert.match(
+    mainSource,
+    /let blackboxStorageDrivesPromise = null[\s\S]*if \(blackboxStorageDrivesPromise\) return blackboxStorageDrivesPromise[\s\S]*"--mode=drives"/,
+  )
+  assert.match(nativeSource, /mode == L"drives"[\s\S]*GetLogicalDriveStringsW/)
+  assert.match(nativeSource, /GetDriveTypeW\(rootPath\)/)
+  assert.match(nativeSource, /GetDiskFreeSpaceExW\(rootPath/)
   assert.match(mainSource, /`--ring-path=\$\{ringStoragePath\}`/)
   assert.match(nativeSource, /options\.ringPath/)
   assert.match(nativeSource, /options\.clipsPath/)

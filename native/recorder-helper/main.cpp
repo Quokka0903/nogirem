@@ -4092,11 +4092,47 @@ void composeExtraction(
 
 int runUtilityMode(const std::map<std::wstring, std::wstring>& arguments) {
   const auto mode = arguments.at(L"mode");
-  init_apartment(apartment_type::multi_threaded);
-  check_hresult(MFStartup(MF_VERSION, MFSTARTUP_FULL));
   if (!SetPriorityClass(GetCurrentProcess(), PROCESS_MODE_BACKGROUND_BEGIN)) {
     throw std::runtime_error("영상 작업 백그라운드 우선순위를 적용하지 못했습니다");
   }
+  if (mode == L"drives") {
+    const auto characterCount = GetLogicalDriveStringsW(0, nullptr);
+    if (characterCount == 0) {
+      throw std::runtime_error("Windows 저장 드라이브 목록을 조회하지 못했습니다");
+    }
+    std::vector<wchar_t> driveBuffer(characterCount);
+    if (GetLogicalDriveStringsW(characterCount, driveBuffer.data()) == 0) {
+      throw std::runtime_error("Windows 저장 드라이브 목록을 읽지 못했습니다");
+    }
+    bool first = true;
+    std::cout << '[';
+    for (
+      const wchar_t* rootPath = driveBuffer.data();
+      *rootPath != L'\0';
+      rootPath += std::wcslen(rootPath) + 1
+    ) {
+      const auto driveType = GetDriveTypeW(rootPath);
+      if (driveType != DRIVE_REMOVABLE && driveType != DRIVE_FIXED) continue;
+      ULARGE_INTEGER freeBytes{};
+      GetDiskFreeSpaceExW(rootPath, &freeBytes, nullptr, nullptr);
+      const wchar_t driveLetter = rootPath[0] >= L'a' && rootPath[0] <= L'z'
+        ? rootPath[0] - (L'a' - L'A')
+        : rootPath[0];
+      if (!first) std::cout << ',';
+      first = false;
+      std::cout
+        << "{\"id\":\""
+        << static_cast<char>(driveLetter)
+        << ":\",\"freeBytes\":"
+        << freeBytes.QuadPart
+        << '}';
+    }
+    std::cout << "]\n";
+    return 0;
+  }
+
+  init_apartment(apartment_type::multi_threaded);
+  check_hresult(MFStartup(MF_VERSION, MFSTARTUP_FULL));
   try {
     if (mode == L"track" || mode == L"index") {
       const auto ringPaths = utilityRingPaths(arguments);
@@ -4261,6 +4297,7 @@ int wmain(int count, wchar_t** values) {
     && (
       arguments.at(L"mode") == L"track"
       || arguments.at(L"mode") == L"index"
+      || arguments.at(L"mode") == L"drives"
       || arguments.at(L"mode") == L"summary"
       || arguments.at(L"mode") == L"latest"
       || arguments.at(L"mode") == L"compose"
