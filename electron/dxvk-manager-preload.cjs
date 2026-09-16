@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require("electron")
 
 contextBridge.exposeInMainWorld("dxvkManager", {
+  contentReady: timing => ipcRenderer.send("dxvk:content-ready", timing),
   requestClose: () => ipcRenderer.invoke("dxvk:request-close"),
   getStatus: () => ipcRenderer.invoke("dxvk:get-status"),
   checkUpdate: () => ipcRenderer.invoke("dxvk:check-update"),

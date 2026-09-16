@@ -278,13 +278,20 @@ test("관리 창의 확인·설치 완료 상태를 메인 화면에 즉시 전�
   )
   assert.match(dxvkManagerWindowSource, /show: false/)
   assert.match(dxvkManagerWindowSource, /show: false,\s*opacity: 0/)
+  assert.match(dxvkManagerWindowSource, /transparent: true[\s\S]*backgroundColor: "#00000000"/)
   assert.match(
     dxvkManagerWindowSource,
     /const revealWindow = \(\) => \{[\s\S]*window\.show\(\)[\s\S]*window\.focus\(\)[\s\S]*animateOpacity\(0, 1, 300\)/,
   )
   assert.match(
     dxvkManagerWindowSource,
-    /window\.loadFile\([\s\S]*window\.showInactive\(\)[\s\S]*requestAnimationFrame\(\(\) => requestAnimationFrame\(resolve\)\)[\s\S]*capturePage\(\)/,
+    /dxvkManagerContentReady = \(\) => \{[\s\S]*contentReady = true[\s\S]*if \(revealRequested\) revealWindow\(\)/,
+  )
+  assert.doesNotMatch(dxvkManagerWindowSource, /capturePage\(\)|showInactive\(\)/)
+  assert.match(mainSource, /ipcMain\.on\("dxvk:content-ready"[\s\S]*dxvkManagerContentReady\?\.\(\)/)
+  assert.match(
+    managerSource,
+    /async function revealContent\(\)[\s\S]*image\.decode\(\)[\s\S]*requestAnimationFrame\(\(\) => requestAnimationFrame\(resolve\)\)[\s\S]*contentReady\(\{[\s\S]*void loadInstalled\(\)/,
   )
   assert.match(mainSource, /let dxvkManagerReveal = null/)
   assert.match(dxvkManagerWindowSource, /function openDxvkManager\(reveal = true\)/)

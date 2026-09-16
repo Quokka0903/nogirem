@@ -156,6 +156,7 @@ let primaryWindow = null
 let characterGuideWindow = null
 let dxvkManagerWindow = null
 let dxvkManagerReveal = null
+let dxvkManagerContentReady = null
 let dxvkGuideWindow = null
 let blackboxManagerWindow = null
 let blackboxManagerPreferredSize = null
@@ -5552,7 +5553,10 @@ function timedOptimizationResult(name, promise) {
 async function getOptimizationStatus() {
   const graphics = timedOptimizationResult("그래픽", checkGraphics())
   const network = timedOptimizationResult("네트워크", checkNetwork())
-  const memory = timedOptimizationResult("메모리", checkMemory())
+  const memory = timedOptimizationResult(
+    "메모리",
+    frameBoostStartupPromise.then(() => checkMemory()),
+  )
   const affinity = timedOptimizationResult(
     "CPU·NIC",
     frameBoostStartupPromise.then(() => checkAffinity({ refreshNic: true })),
@@ -5999,6 +6003,13 @@ function registerIpc() {
     }
     window.close()
   })
+  ipcMain.on("dxvk:content-ready", (event, timing) => {
+    if (BrowserWindow.fromWebContents(event.sender) !== dxvkManagerWindow) return
+    writeStartupLog(
+      `Vulkan 관리 창 renderer 콘텐츠 신호 ${JSON.stringify(timing ?? {})}`,
+    )
+    dxvkManagerContentReady?.()
+  })
   ipcMain.handle("dxvk:get-status", event => {
     if (BrowserWindow.fromWebContents(event.sender) !== dxvkManagerWindow) {
       throw new Error("허용되지 않은 DXVK 상태 요청입니다")
@@ -6296,8 +6307,9 @@ function openDxvkManager(reveal = true) {
     autoHideMenuBar: true,
     skipTaskbar: true,
     frame: false,
+    transparent: true,
     roundedCorners: true,
-    backgroundColor: "#101214",
+    backgroundColor: "#00000000",
     paintWhenInitiallyHidden: true,
     webPreferences: {
       preload: dxvkManagerPreloadPath,
@@ -6339,6 +6351,9 @@ function openDxvkManager(reveal = true) {
       if (progress < 1) return
       clearInterval(opacityTimer)
       opacityTimer = null
+      if (to === 1) {
+        writeStartupLog(`Vulkan 관리 창 fade-in 완료 ${Date.now() - openedAt}ms`)
+      }
       onComplete?.()
     }, 16)
   }
@@ -6350,12 +6365,20 @@ function openDxvkManager(reveal = true) {
     window.setFocusable(true)
     window.setIgnoreMouseEvents(false)
     window.center()
+    writeStartupLog(`Vulkan 관리 창 show 호출 ${Date.now() - openedAt}ms`)
     if (!window.isVisible()) window.show()
+    writeStartupLog(`Vulkan 관리 창 show 반환 ${Date.now() - openedAt}ms`)
     window.moveTop()
     window.focus()
     animateOpacity(0, 1, 300)
   }
   dxvkManagerReveal = revealWindow
+  dxvkManagerContentReady = () => {
+    if (contentReady || window.isDestroyed()) return
+    writeStartupLog(`Vulkan 관리 창 콘텐츠 준비 ${Date.now() - openedAt}ms`)
+    contentReady = true
+    if (revealRequested) revealWindow()
+  }
   window.once("ready-to-show", () => {
     if (window.isDestroyed()) return
     writeStartupLog(`Vulkan 관리 창 표시 준비 ${Date.now() - openedAt}ms`)
@@ -6381,6 +6404,7 @@ function openDxvkManager(reveal = true) {
     if (dxvkManagerWindow === window) {
       dxvkManagerWindow = null
       dxvkManagerReveal = null
+      dxvkManagerContentReady = null
     }
     if (!applicationExitInProgress && !closedForTray) focusPrimaryWindow()
   })
@@ -6392,23 +6416,8 @@ function openDxvkManager(reveal = true) {
       : builtManagerPath,
   )
   void loading
-    .then(async () => {
+    .then(() => {
       writeStartupLog(`Vulkan 관리 창 문서 로드 ${Date.now() - openedAt}ms`)
-      if (revealRequested) {
-        window.center()
-        window.showInactive()
-      }
-      await window.webContents.executeJavaScript(`
-        new Promise(resolve => {
-          requestAnimationFrame(() => requestAnimationFrame(resolve))
-        })
-      `)
-      if (window.isDestroyed()) return
-      await window.webContents.capturePage()
-      if (window.isDestroyed()) return
-      writeStartupLog(`Vulkan 관리 창 렌더링 완료 ${Date.now() - openedAt}ms`)
-      contentReady = true
-      if (revealRequested) revealWindow()
     })
     .catch(error => showWindowLoadError(window, error))
     .catch(error => console.error("DXVK 관리 화면 로드 실패", error))
