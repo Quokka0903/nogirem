@@ -16,6 +16,8 @@ const PROCESS_ENTRY_NAME_OFFSET = 44
 const PROCESS_ENTRY_NAME_BYTES = 260 * 2
 const ERROR_INSUFFICIENT_BUFFER = 122
 const PROCESS_PATH_CAPACITY = 32768
+// About one minute at the default 5s poll interval.
+const FAILED_METADATA_RETRY_TICKS = 12
 const DEFAULT_SYSTEM_ROOT = "C:\\Windows"
 
 // QueryFullProcessImageNameW writes into this buffer on every call. Reusing one
@@ -157,24 +159,40 @@ const nativeProcessMetadataReaders = {
   queryProcessSessionId,
 }
 
+const hasCompleteMetadata = entry => [entry.path, entry.startTime, entry.sessionId]
+  .every(value => value !== null && value !== undefined)
+
 // path, startTime and sessionId never change while a process lives, so they are
 // queried once per pid instead of once per poll. A pid can be reused by a new
 // process between two snapshots, so the snapshot name is cached alongside the
 // metadata and any mismatch forces a re-query.
-export const createProcessMetadataCache = (readers = {}) => {
+//
+// Incomplete lookups are cached too, otherwise every unreadable process would be
+// re-queried on every poll, but only for failedRetryTicks polls. A process
+// sampled before Windows published its image name would otherwise keep a null
+// path for its whole lifetime, and isEligibleManagedProcess would silently leave
+// it on the game cores forever.
+export const createProcessMetadataCache = (readers = {}, {
+  failedRetryTicks = FAILED_METADATA_RETRY_TICKS,
+} = {}) => {
   const {
     queryProcessPath,
     queryProcessStartTime,
     queryProcessSessionId,
   } = { ...nativeProcessMetadataReaders, ...readers }
   const entries = new Map()
+  let tickCount = 0
 
   const attach = processes => {
+    tickCount += 1
     const livePids = new Set()
     for (const processInfo of processes) {
       livePids.add(processInfo.pid)
       const cached = entries.get(processInfo.pid)
-      if (cached && cached.name === processInfo.name) {
+      const reusable = cached
+        && cached.name === processInfo.name
+        && (cached.retryTick === undefined || tickCount < cached.retryTick)
+      if (reusable) {
         processInfo.path = cached.path
         processInfo.startTime = cached.startTime
         processInfo.sessionId = cached.sessionId
@@ -183,12 +201,15 @@ export const createProcessMetadataCache = (readers = {}) => {
       processInfo.path = queryProcessPath(processInfo.pid)
       processInfo.startTime = queryProcessStartTime(processInfo.pid)
       processInfo.sessionId = queryProcessSessionId(processInfo.pid)
-      entries.set(processInfo.pid, {
+      const entry = {
         name: processInfo.name,
         path: processInfo.path,
         startTime: processInfo.startTime,
         sessionId: processInfo.sessionId,
-      })
+      }
+      entries.set(processInfo.pid, hasCompleteMetadata(entry)
+        ? entry
+        : { ...entry, retryTick: tickCount + failedRetryTicks })
     }
     for (const pid of entries.keys()) {
       if (!livePids.has(pid)) entries.delete(pid)

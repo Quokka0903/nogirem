@@ -498,3 +498,95 @@ test("경로 조회 버퍼를 재사용해도 이전 조회 결과가 남지 않
 
   assert.equal(queryProcessPath(process.pid), process.execPath)
 })
+
+test("메타데이터 조회에 실패하면 지정한 틱 간격으로만 다시 조회한다", () => {
+  const queriedPids = []
+  const cache = createProcessMetadataCache({
+    queryProcessPath: pid => {
+      queriedPids.push(pid)
+      return null
+    },
+    queryProcessStartTime: () => null,
+    queryProcessSessionId: () => null,
+  }, { failedRetryTicks: 3 })
+  const snapshot = () => [{ pid: 1000, name: "app.exe" }]
+
+  cache.attach(snapshot())
+  assert.deepEqual(queriedPids, [1000])
+
+  cache.attach(snapshot())
+  cache.attach(snapshot())
+  assert.deepEqual(queriedPids, [1000])
+
+  const [retried] = cache.attach(snapshot())
+  assert.deepEqual(queriedPids, [1000, 1000])
+  assert.equal(retried.path, null)
+})
+
+test("실패 후 재조회가 성공하면 캐시에 남고 더 이상 재시도하지 않는다", () => {
+  const queriedPids = []
+  let queriedPath = null
+  const cache = createProcessMetadataCache({
+    queryProcessPath: pid => {
+      queriedPids.push(pid)
+      return queriedPath
+    },
+    queryProcessStartTime: () => "2026-09-05T17:00:00.000Z",
+    queryProcessSessionId: () => 1,
+  }, { failedRetryTicks: 2 })
+  const snapshot = () => [{ pid: 1000, name: "app.exe" }]
+
+  cache.attach(snapshot())
+  cache.attach(snapshot())
+  assert.deepEqual(queriedPids, [1000])
+
+  queriedPath = "C:\\Apps\\app.exe"
+  const [recovered] = cache.attach(snapshot())
+  assert.deepEqual(queriedPids, [1000, 1000])
+  assert.equal(recovered.path, "C:\\Apps\\app.exe")
+
+  cache.attach(snapshot())
+  cache.attach(snapshot())
+  cache.attach(snapshot())
+  assert.deepEqual(queriedPids, [1000, 1000])
+})
+
+test("경로만 있고 시작 시각이 비어 있어도 실패로 보고 재조회한다", () => {
+  const queriedPids = []
+  const cache = createProcessMetadataCache({
+    queryProcessPath: pid => {
+      queriedPids.push(pid)
+      return "C:\\Apps\\app.exe"
+    },
+    queryProcessStartTime: () => null,
+    queryProcessSessionId: () => 1,
+  }, { failedRetryTicks: 2 })
+  const snapshot = () => [{ pid: 1000, name: "app.exe" }]
+
+  cache.attach(snapshot())
+  cache.attach(snapshot())
+  assert.deepEqual(queriedPids, [1000])
+
+  cache.attach(snapshot())
+  assert.deepEqual(queriedPids, [1000, 1000])
+})
+
+test("세션 ID 0은 정상 값이므로 재조회 대상이 아니다", () => {
+  const queriedPids = []
+  const cache = createProcessMetadataCache({
+    queryProcessPath: pid => {
+      queriedPids.push(pid)
+      return "C:\\Apps\\service.exe"
+    },
+    queryProcessStartTime: () => "2026-09-05T17:00:00.000Z",
+    queryProcessSessionId: () => 0,
+  }, { failedRetryTicks: 1 })
+  const snapshot = () => [{ pid: 1000, name: "service.exe" }]
+
+  cache.attach(snapshot())
+  cache.attach(snapshot())
+  const [reused] = cache.attach(snapshot())
+
+  assert.deepEqual(queriedPids, [1000])
+  assert.equal(reused.sessionId, 0)
+})
