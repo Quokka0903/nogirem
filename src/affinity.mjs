@@ -15,6 +15,13 @@ const PROCESS_ENTRY_PID_OFFSET = 8
 const PROCESS_ENTRY_NAME_OFFSET = 44
 const PROCESS_ENTRY_NAME_BYTES = 260 * 2
 const ERROR_INSUFFICIENT_BUFFER = 122
+const PROCESS_PATH_CAPACITY = 32768
+const DEFAULT_SYSTEM_ROOT = "C:\\Windows"
+
+// QueryFullProcessImageNameW writes into this buffer on every call. Reusing one
+// module-scope buffer is safe because queryProcessPath is fully synchronous and
+// toString() copies the bytes out before the next call can start.
+const processPathBuffer = Buffer.alloc(PROCESS_PATH_CAPACITY * 2)
 
 function nativeCall(funcName, retType, paramsType, paramsValue) {
   return load({ library: "kernel32", funcName, retType, paramsType, paramsValue })
@@ -45,19 +52,20 @@ function readPointer(pointer, type) {
 export function queryProcessPath(pid) {
   const handle = openProcess(pid)
   if (!handle) return null
-  const capacity = 32768
-  const buffer = Buffer.alloc(capacity * 2)
-  const size = createPointer({ paramsType: [DataType.U32], paramsValue: [capacity] })
+  const size = createPointer({
+    paramsType: [DataType.U32],
+    paramsValue: [PROCESS_PATH_CAPACITY],
+  })
   try {
     const ok = nativeCall(
       "QueryFullProcessImageNameW",
       DataType.Boolean,
       [DataType.External, DataType.U32, DataType.U8Array, DataType.External],
-      [handle, 0, buffer, size[0]],
+      [handle, 0, processPathBuffer, size[0]],
     )
     if (!ok) return null
     const length = Number(readPointer(size, DataType.U32))
-    return buffer.subarray(0, length * 2).toString("utf16le")
+    return processPathBuffer.subarray(0, length * 2).toString("utf16le")
   } finally {
     freePointer({ paramsType: [DataType.U32], paramsValue: size, pointerType: PointerType.RsPointer })
     closeHandle(handle)
@@ -143,6 +151,58 @@ function queryProcessStartTime(pid) {
   }
 }
 
+const nativeProcessMetadataReaders = {
+  queryProcessPath,
+  queryProcessStartTime,
+  queryProcessSessionId,
+}
+
+// path, startTime and sessionId never change while a process lives, so they are
+// queried once per pid instead of once per poll. A pid can be reused by a new
+// process between two snapshots, so the snapshot name is cached alongside the
+// metadata and any mismatch forces a re-query.
+export const createProcessMetadataCache = (readers = {}) => {
+  const {
+    queryProcessPath,
+    queryProcessStartTime,
+    queryProcessSessionId,
+  } = { ...nativeProcessMetadataReaders, ...readers }
+  const entries = new Map()
+
+  const attach = processes => {
+    const livePids = new Set()
+    for (const processInfo of processes) {
+      livePids.add(processInfo.pid)
+      const cached = entries.get(processInfo.pid)
+      if (cached && cached.name === processInfo.name) {
+        processInfo.path = cached.path
+        processInfo.startTime = cached.startTime
+        processInfo.sessionId = cached.sessionId
+        continue
+      }
+      processInfo.path = queryProcessPath(processInfo.pid)
+      processInfo.startTime = queryProcessStartTime(processInfo.pid)
+      processInfo.sessionId = queryProcessSessionId(processInfo.pid)
+      entries.set(processInfo.pid, {
+        name: processInfo.name,
+        path: processInfo.path,
+        startTime: processInfo.startTime,
+        sessionId: processInfo.sessionId,
+      })
+    }
+    for (const pid of entries.keys()) {
+      if (!livePids.has(pid)) entries.delete(pid)
+    }
+    return processes
+  }
+
+  return {
+    attach,
+    cachedPids: () => [...entries.keys()],
+    size: () => entries.size,
+  }
+}
+
 export function listNativeProcesses() {
   const snapshot = nativeCall(
     "CreateToolhelp32Snapshot",
@@ -202,6 +262,14 @@ function setAffinity(pid, mask) {
 }
 
 const normalizePath = value => value?.replaceAll("/", "\\").toLowerCase() ?? ""
+
+export const isSystemDirectoryPath = (path, systemRoot = process.env.SystemRoot) => {
+  const normalizedPath = normalizePath(path)
+  if (!normalizedPath) return false
+  const normalizedRoot = normalizePath(systemRoot || DEFAULT_SYSTEM_ROOT).replace(/\\+$/, "")
+  if (!normalizedRoot) return false
+  return normalizedPath.startsWith(`${normalizedRoot}\\`)
+}
 
 export function getGameDirectoryNames(config) {
   const configuredNames = Array.isArray(config.gameDirectoryNames)
@@ -509,6 +577,8 @@ export async function createAffinityManager({
     .map(value => new RegExp(value, "i"))
   const changed = new Map()
   const handled = new Set()
+  const processMetadataCache = createProcessMetadataCache()
+  const systemRoot = process.env.SystemRoot ?? DEFAULT_SYSTEM_ROOT
   let gameActive = false
   let latestGameStartTime = null
   let latestGameExecutablePath = null
@@ -517,13 +587,7 @@ export async function createAffinityManager({
   const isGame = processInfo => matchesGameProcess(processInfo, config)
 
   async function listProcesses() {
-    const processes = listNativeProcesses()
-    for (const processInfo of processes) {
-      processInfo.path = queryProcessPath(processInfo.pid)
-      processInfo.startTime = queryProcessStartTime(processInfo.pid)
-      processInfo.sessionId = queryProcessSessionId(processInfo.pid)
-    }
-    return processes
+    return processMetadataCache.attach(listNativeProcesses())
   }
 
   const initialProcesses = await listProcesses()
@@ -536,7 +600,7 @@ export async function createAffinityManager({
     if (processInfo.pid <= 4 || processInfo.pid === process.pid || processInfo.sessionId !== currentSessionId) {
       return false
     }
-    if (!path || path.startsWith("c:\\windows\\")) return false
+    if (!path || isSystemDirectoryPath(path, systemRoot)) return false
     if (excludeNames.has(name) || excludePatterns.some(pattern => pattern.test(name))) return false
     return !isGame(processInfo)
   }
