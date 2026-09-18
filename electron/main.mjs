@@ -136,6 +136,9 @@ const startupTrayRegistryPath = "HKCU:\\Software\\Nogirem"
 const startupTrayLaunch = process.argv.includes("--startup-tray")
 const developmentServerUrl = resolveDevelopmentServerUrl()
 const applicationUpdateStallTimeoutMs = 45_000
+// 로컬 포크 빌드가 upstream 릴리스로 덮어써지지 않도록 자동 업데이트는 기본으로 꺼 둔다.
+// 정식 배포본을 만들 때만 NOGIREM_ENABLE_UPDATES=1로 켠다.
+const applicationUpdatesEnabled = process.env.NOGIREM_ENABLE_UPDATES === "1"
 const primaryRendererUnresponsiveTimeoutMs = 5_000
 const primaryWindowRevealTimeoutMs = 8_000
 const trayMenuCloseDelayMs = 75
@@ -658,7 +661,7 @@ function armApplicationUpdateStallTimer() {
 }
 
 function configureApplicationUpdater() {
-  if (applicationUpdaterConfigured || !app.isPackaged) return
+  if (applicationUpdaterConfigured || !app.isPackaged || !applicationUpdatesEnabled) return
   applicationUpdaterConfigured = true
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
@@ -745,7 +748,7 @@ function configureApplicationUpdater() {
 async function checkForApplicationUpdate() {
   void checkApplicationNotice()
   void checkApplicationReportResponses()
-  if (!app.isPackaged) return applicationUpdateState
+  if (!app.isPackaged || !applicationUpdatesEnabled) return applicationUpdateState
   if (["available", "downloading", "downloaded"].includes(applicationUpdateState.phase)) {
     return applicationUpdateState
   }
@@ -7378,7 +7381,7 @@ async function startApplication() {
     .then(() => {
       writeStartupLog("마비노기 입력 기능 초기화 처리 종료")
     })
-  if (app.isPackaged) {
+  if (app.isPackaged && applicationUpdatesEnabled) {
     applicationUpdateStartupTimer = setTimeout(() => {
       applicationUpdateStartupTimer = null
       void requestApplicationUpdate()

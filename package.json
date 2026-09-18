@@ -134,7 +134,7 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "rubystarashe",
+        "owner": "Quokka0903",
         "repo": "nogirem",
         "releaseType": "release"
       }
