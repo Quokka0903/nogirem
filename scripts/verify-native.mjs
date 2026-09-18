@@ -4,7 +4,7 @@
 
 import { spawn } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -12,10 +12,20 @@ import { redactDiagnosticText } from "../src/diagnostic-bundle.mjs"
 import {
   buildSummary,
   compareVersions,
+  decodeBuildOutput,
+  defaultOutputEncoding,
+  deriveStatus,
+  encodingFromCodePage,
   evaluateGenerator,
+  exitCodes,
   formatCompactReport,
+  mergePathEnv,
+  pickBestCMake,
   relativizeProjectPaths,
+  statusExitCode,
   summarizeHelperLog,
+  visualStudioCMakeCandidates,
+  visualStudioCMakeRelativePath,
 } from "./native-log.mjs"
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -25,13 +35,15 @@ const buildTimeoutMs = Number(process.env.NOGIREM_NATIVE_BUILD_TIMEOUT_MS) || 20
 const probeTimeoutMs = 20 * 1000
 const smokeTimeoutMs = Number(process.env.NOGIREM_NATIVE_SMOKE_TIMEOUT_MS) || 20 * 1000
 
-export const exitCodes = {
-  ok: 0,
-  failed: 1,
-  internalError: 2,
-  missingToolchain: 3,
-  unsupportedPlatform: 4,
-}
+// 자식 프로세스 출력이 UTF-8이 아닐 때 쓸 대체 인코딩. main() 시작 때 chcp로 확정한다.
+let outputEncoding = defaultOutputEncoding
+
+const vswherePath = join(
+  process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)",
+  "Microsoft Visual Studio",
+  "Installer",
+  "vswhere.exe",
+)
 
 const helperDefinitions = [
   {
@@ -71,7 +83,7 @@ function posixPath(value) {
   return relative(root, value).replaceAll("\\", "/")
 }
 
-function runCommand(command, arguments_, { timeout = probeTimeoutMs, cwd = root } = {}) {
+function runCommand(command, arguments_, { timeout = probeTimeoutMs, cwd = root, env } = {}) {
   return new Promise(resolve => {
     const startedAt = Date.now()
     let child
@@ -81,6 +93,7 @@ function runCommand(command, arguments_, { timeout = probeTimeoutMs, cwd = root 
         shell: false,
         windowsHide: true,
         stdio: ["ignore", "pipe", "pipe"],
+        ...(env ? { env } : {}),
       })
     } catch (error) {
       resolve({
@@ -108,14 +121,15 @@ function runCommand(command, arguments_, { timeout = probeTimeoutMs, cwd = root 
       if (settled) return
       settled = true
       clearTimeout(timer)
+      const stderrText = decodeBuildOutput(Buffer.concat(stderrChunks), outputEncoding)
       resolve({
         spawned: !spawnError,
         code,
         timedOut,
-        stdout: Buffer.concat(stdoutChunks).toString("utf8"),
+        stdout: decodeBuildOutput(Buffer.concat(stdoutChunks), outputEncoding),
         stderr: spawnError
-          ? `${Buffer.concat(stderrChunks).toString("utf8")}${String(spawnError?.message ?? spawnError)}`
-          : Buffer.concat(stderrChunks).toString("utf8"),
+          ? `${stderrText}${String(spawnError?.message ?? spawnError)}`
+          : stderrText,
         durationMs: Date.now() - startedAt,
       })
     }
@@ -166,12 +180,7 @@ async function probeVersion(candidates, arguments_ = ["--version"]) {
 }
 
 async function probeVisualStudio() {
-  const vswhere = join(
-    process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)",
-    "Microsoft Visual Studio",
-    "Installer",
-    "vswhere.exe",
-  )
+  const vswhere = vswherePath
   let instances = []
   if (existsSync(vswhere)) {
     const result = await runCommand(vswhere, [
@@ -230,12 +239,95 @@ async function probeVisualStudio() {
   }
 }
 
+async function probeOutputEncoding() {
+  const chcp = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "chcp.com")
+  if (!existsSync(chcp)) return defaultOutputEncoding
+  const result = await runCommand(chcp, [])
+  if (!result.spawned || result.code !== 0) return defaultOutputEncoding
+  return encodingFromCodePage(result.stdout)
+}
+
+async function directoryNames(directory) {
+  try {
+    const entries = await readdir(directory, { withFileTypes: true })
+    return entries.filter(entry => entry.isDirectory()).map(entry => entry.name)
+  } catch {
+    return []
+  }
+}
+
+// vswhere가 모르는 설치까지 훑되, 연도("2019")나 에디션("Community")은 하드코딩하지 않는다.
+async function visualStudioInstallationPaths(visualStudio) {
+  const roots = new Set()
+  for (const instance of visualStudio.instances ?? []) {
+    if (instance.path) roots.add(instance.path)
+  }
+  const programFiles = [
+    process.env.ProgramFiles,
+    process.env["ProgramFiles(x86)"],
+  ].filter(Boolean)
+  for (const base of programFiles) {
+    const visualStudioRoot = join(base, "Microsoft Visual Studio")
+    for (const year of await directoryNames(visualStudioRoot)) {
+      for (const edition of await directoryNames(join(visualStudioRoot, year))) {
+        roots.add(join(visualStudioRoot, year, edition))
+      }
+    }
+  }
+  return [...roots]
+}
+
+async function vswhereCMakePaths() {
+  if (!existsSync(vswherePath)) return []
+  const result = await runCommand(vswherePath, [
+    "-products",
+    "*",
+    "-find",
+    visualStudioCMakeRelativePath,
+    "-format",
+    "value",
+    "-nologo",
+    "-utf8",
+  ])
+  if (!result.spawned || result.code !== 0) return []
+  return result.stdout.split("\n").map(line => line.trim()).filter(Boolean)
+}
+
+// Visual Studio C++ 워크로드는 cmake를 함께 깔지만 PATH에는 올리지 않는다.
+// PATH에서 못 찾으면 VS 동봉본까지 찾아보고, 어디서 찾았는지 source로 남긴다.
+async function probeCMake(visualStudio) {
+  const onPath = await probeVersion(["cmake"])
+  if (onPath.available) return { ...onPath, source: "path" }
+  const candidates = [
+    ...await vswhereCMakePaths(),
+    ...visualStudioCMakeCandidates(await visualStudioInstallationPaths(visualStudio)),
+  ]
+  const seen = new Set()
+  const probed = []
+  for (const candidate of candidates) {
+    const key = candidate.toLowerCase()
+    if (seen.has(key) || !existsSync(candidate)) continue
+    seen.add(key)
+    const result = await probeVersion([candidate])
+    if (result.available) probed.push({ path: candidate, version: result.version })
+  }
+  const best = pickBestCMake(probed)
+  if (!best) return { ...onPath, source: null }
+  return {
+    available: true,
+    version: best.version,
+    path: best.path,
+    source: "visual-studio",
+    error: null,
+  }
+}
+
 async function probeToolchain() {
-  const [cmake, msvc, cargo] = await Promise.all([
-    probeVersion(["cmake"]),
+  const [msvc, cargo] = await Promise.all([
     probeVisualStudio(),
     probeVersion(cargoCandidates()),
   ])
+  const cmake = await probeCMake(msvc)
   const rustcCandidates = cargo.path && cargo.path !== "cargo"
     ? [join(dirname(cargo.path), "rustc.exe"), "rustc"]
     : ["rustc"]
@@ -278,9 +370,12 @@ async function writeSummary(summary) {
   return serialized
 }
 
-async function buildHelper(definition) {
+// buildEnv 는 PATH 밖에서 찾은 cmake 디렉터리를 자식 PATH 앞에 붙인 환경이다.
+// 빌드 스크립트는 그대로 "cmake" 를 부르고, 해석만 이 PATH 로 바뀐다.
+async function buildHelper(definition, buildEnv) {
   const result = await runCommand(process.execPath, [join(root, definition.script)], {
     timeout: buildTimeoutMs,
+    env: buildEnv,
   })
   const captured = sanitizeLog([
     `# ${definition.helper} · node ${definition.script}`,
@@ -470,10 +565,15 @@ function printHelp() {
     "  네이티브 helper 빌드 도구를 확인하고 4개 helper를 모두 빌드한 뒤",
     "  컴파일러 출력을 정규화해 build-logs/summary.json 과 요약을 남깁니다.",
     "",
+    "  cmake가 PATH에 없으면 Visual Studio에 동봉된 cmake를 찾아 씁니다.",
+    "",
     "  --json   요약 JSON만 출력합니다 (CI/에이전트용)",
     "  --help   이 도움말을 출력합니다",
     "",
-    "종료 코드: 0=성공 1=빌드/스모크 실패 2=하네스 오류 3=빌드 도구 없음 4=미지원 플랫폼",
+    "status: ok=전부 빌드 partial=일부만 빌드(나머지는 도구 없어 건너뜀)",
+    "        missing-toolchain=하나도 못 돌림 failed=빌드/스모크 실패",
+    "종료 코드: 0=성공 1=빌드/스모크 실패 2=하네스 오류",
+    "          3=도구가 없어 건너뛴 helper 있음(partial 포함) 4=미지원 플랫폼",
   ].join("\n"))
 }
 
@@ -510,6 +610,7 @@ async function main() {
     return exitCodes.unsupportedPlatform
   }
 
+  outputEncoding = await probeOutputEncoding()
   const toolchain = await probeToolchain()
   const toolIssues = new Map()
   for (const name of ["cmake", "msvc", "cargo", "rustc"]) {
@@ -521,6 +622,10 @@ async function main() {
   if (!toolIssues.has("cmake") && toolchain.generator.cmakeReason) {
     toolIssues.set("cmake", toolchain.generator.cmakeReason)
   }
+
+  const buildEnv = toolchain.cmake.source === "visual-studio" && toolchain.cmake.path
+    ? mergePathEnv(process.env, dirname(toolchain.cmake.path))
+    : undefined
 
   const helpers = []
   const smoke = []
@@ -542,7 +647,7 @@ async function main() {
       }))
       continue
     }
-    const entry = await buildHelper(definition)
+    const entry = await buildHelper(definition, buildEnv)
     helpers.push(entry)
     if (entry.status !== "ok") {
       smoke.push(smokeResult(definition.helper, "빌드 후 스모크 보류", "skipped", {
@@ -553,14 +658,8 @@ async function main() {
     smoke.push(await smokeRunners[definition.helper](join(root, definition.artifact)))
   }
 
-  const buildFailed = helpers.some(entry => entry.status === "failed")
-    || smoke.some(entry => entry.status === "failed")
-  const status = buildFailed
-    ? "failed"
-    : (missing.size ? "missing-toolchain" : "ok")
-  const exitCode = buildFailed
-    ? exitCodes.failed
-    : (missing.size ? exitCodes.missingToolchain : exitCodes.ok)
+  const status = deriveStatus({ helpers, smoke })
+  const exitCode = statusExitCode(status)
 
   const summary = buildSummary({
     status,
@@ -582,7 +681,7 @@ async function main() {
     return exitCode
   }
   for (const line of formatCompactReport(summary)) console.log(line)
-  if (status === "missing-toolchain") {
+  if (missing.size) {
     console.log("[native-verify] 설치 안내:")
     if (missing.has("cmake")) console.log("[native-verify]   - cmake 3.20 이상: https://cmake.org/download/")
     if (missing.has("msvc")) console.log(`[native-verify]   - Visual Studio 2019(v16) C++ 워크로드 또는 Build Tools (생성기 "${toolchain.generator.requested}")`)

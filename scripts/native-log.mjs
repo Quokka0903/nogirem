@@ -1,6 +1,8 @@
 // 네이티브 빌드 로그를 기계가 읽을 수 있는 진단 레코드로 바꾸는 순수 함수 모음.
 // 부수 효과가 없어야 test/native-log.test.mjs 에서 그대로 단위 검증할 수 있다.
 
+import { delimiter, join } from "node:path"
+
 export const requestedGenerator = "Visual Studio 16 2019"
 export const requestedGeneratorMajor = 16
 export const minimumCMakeVersion = "3.20"
@@ -145,6 +147,129 @@ export function evaluateGenerator({ cmakeVersion = null, instances = [] } = {}) 
     cmakeReason,
     toolsetReason,
   }
+}
+
+// MSBuild/cl 은 한국어 Windows에서 진단을 UTF-8이 아니라 콘솔 코드 페이지(949)로 낸다.
+// 그대로 UTF-8로 읽으면 message 가 깨져 진단이 쓸모없어지므로 코드 페이지를 확인해 둔다.
+export const codePageEncodings = {
+  932: "shift_jis",
+  936: "gbk",
+  949: "euc-kr",
+  950: "big5",
+  1250: "windows-1250",
+  1251: "windows-1251",
+  1252: "windows-1252",
+  1253: "windows-1253",
+  1254: "windows-1254",
+  65001: "utf-8",
+}
+
+export const defaultOutputEncoding = "windows-1252"
+
+export function encodingFromCodePage(text, fallback = defaultOutputEncoding) {
+  const matches = String(text ?? "").match(/\d{3,5}/g)
+  if (!matches?.length) return fallback
+  return codePageEncodings[Number(matches.at(-1))] ?? fallback
+}
+
+// UTF-8로 먼저 엄격하게 읽어 보고, 깨지면 콘솔 코드 페이지로 되읽는다.
+// ASCII/UTF-8 출력은 그대로 통과하므로 cargo 같은 UTF-8 도구는 영향이 없다.
+export function decodeBuildOutput(buffer, fallbackEncoding = defaultOutputEncoding) {
+  if (!buffer?.length) return ""
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(buffer)
+  } catch {
+    // UTF-8이 아니면 아래에서 코드 페이지로 다시 읽는다
+  }
+  try {
+    return new TextDecoder(fallbackEncoding).decode(buffer)
+  } catch {
+    return Buffer.from(buffer).toString("latin1")
+  }
+}
+
+// Visual Studio C++ 워크로드는 cmake 를 함께 설치하지만 PATH 에는 올리지 않는다.
+// 설치 루트만 주면 번들 cmake 후보 경로를 만들어 준다 (연도·에디션을 하드코딩하지 않는다).
+export const visualStudioCMakeSegments = [
+  "Common7",
+  "IDE",
+  "CommonExtensions",
+  "Microsoft",
+  "CMake",
+  "CMake",
+  "bin",
+  "cmake.exe",
+]
+
+export const visualStudioCMakeRelativePath = join(...visualStudioCMakeSegments)
+
+export function visualStudioCMakeCandidates(installationPaths) {
+  const seen = new Set()
+  const candidates = []
+  for (const installationPath of installationPaths ?? []) {
+    const trimmed = String(installationPath ?? "").trim()
+    if (!trimmed) continue
+    const candidate = join(trimmed, visualStudioCMakeRelativePath)
+    const key = candidate.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    candidates.push(candidate)
+  }
+  return candidates
+}
+
+// 후보가 여럿이면 최소 요구 버전을 넘는 것 중 가장 높은 cmake 를 고른다.
+export function pickBestCMake(candidates) {
+  const usable = (candidates ?? []).filter(candidate => candidate?.path && candidate?.version)
+  if (!usable.length) return null
+  const ordered = [...usable].sort((left, right) => compareVersions(right.version, left.version))
+  return ordered.find(
+    candidate => compareVersions(candidate.version, minimumCMakeVersion) >= 0,
+  ) ?? ordered[0]
+}
+
+// 자식 프로세스 PATH 앞에 디렉터리를 붙인다. Windows 환경 변수는 대소문자를 가리지 않으므로
+// 기존 Path/PATH 항목을 먼저 지워 중복 키가 생기지 않게 한다.
+export function mergePathEnv(baseEnv, extraPath, separator = delimiter) {
+  if (!extraPath) return undefined
+  const merged = {}
+  let previous = ""
+  for (const [key, value] of Object.entries(baseEnv ?? {})) {
+    if (key.toLowerCase() === "path") {
+      if (!previous) previous = String(value ?? "")
+      continue
+    }
+    merged[key] = value
+  }
+  merged.PATH = previous ? `${extraPath}${separator}${previous}` : String(extraPath)
+  return merged
+}
+
+// 빌드 실패와 "도구가 없어 건너뜀"은 다르다.
+// 일부만 빌드된 경우를 partial 로 따로 표시해, 예상된 건너뜀을 실패로 보고하지 않는다.
+export function deriveStatus({ helpers = [], smoke = [] } = {}) {
+  if (
+    helpers.some(entry => entry.status === "failed")
+    || smoke.some(entry => entry.status === "failed")
+  ) return "failed"
+  const skipped = helpers.filter(entry => entry.status === "skipped").length
+  if (!skipped) return "ok"
+  return helpers.some(entry => entry.status === "ok") ? "partial" : "missing-toolchain"
+}
+
+export const exitCodes = {
+  ok: 0,
+  failed: 1,
+  internalError: 2,
+  missingToolchain: 3,
+  unsupportedPlatform: 4,
+}
+
+export function statusExitCode(status) {
+  if (status === "ok") return exitCodes.ok
+  if (status === "failed") return exitCodes.failed
+  if (status === "unsupported-platform") return exitCodes.unsupportedPlatform
+  return exitCodes.missingToolchain
 }
 
 function flushCMakeBlock(block, records) {
@@ -423,7 +548,9 @@ function formatDiagnostic(record) {
 }
 
 function toolLabel(tool) {
-  return tool?.available ? (tool.version ?? "설치됨") : "없음"
+  if (!tool?.available) return "없음"
+  const version = tool.version ?? "설치됨"
+  return tool.source === "visual-studio" ? `${version}(vs)` : version
 }
 
 // 에이전트가 한눈에 읽도록 30줄 안팎으로 접은 보고서. 세부 내용은 로그 파일로 넘긴다.

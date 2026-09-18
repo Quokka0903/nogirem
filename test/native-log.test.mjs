@@ -3,13 +3,23 @@ import test from "node:test"
 import {
   buildSummary,
   capDiagnostics,
+  decodeBuildOutput,
   dedupeDiagnostics,
+  defaultOutputEncoding,
+  deriveStatus,
+  encodingFromCodePage,
   evaluateGenerator,
+  exitCodes,
   extractFailureHints,
   formatCompactReport,
+  mergePathEnv,
   parseDiagnostics,
+  pickBestCMake,
   relativizeProjectPaths,
+  statusExitCode,
   summarizeHelperLog,
+  visualStudioCMakeCandidates,
+  visualStudioCMakeRelativePath,
 } from "../scripts/native-log.mjs"
 
 const msvcLog = [
@@ -362,6 +372,168 @@ test("빌드 도구가 없으면 생성기를 쓸 수 없다고 알린다", () =
   assert.equal(ok.reason, null)
   assert.equal(ok.cmakeReason, null)
   assert.equal(ok.toolsetReason, null)
+})
+
+test("코드 페이지로 나온 MSVC 진단을 깨뜨리지 않고 읽는다", () => {
+  assert.equal(encodingFromCodePage("Active code page: 949"), "euc-kr")
+  assert.equal(encodingFromCodePage("Active code page: 65001"), "utf-8")
+  assert.equal(encodingFromCodePage("현재 코드 페이지: 936"), "gbk")
+  // 모르는 코드 페이지나 읽을 수 없는 출력은 기본값으로 떨어진다
+  assert.equal(encodingFromCodePage("Active code page: 437"), defaultOutputEncoding)
+  assert.equal(encodingFromCodePage(""), defaultOutputEncoding)
+  assert.equal(encodingFromCodePage(null), defaultOutputEncoding)
+
+  // CP949로 나온 "선언되지 않은 식별자입니다"
+  const cp949 = Buffer.from(
+    "6d61696e2e63707028333232302c35293a206572726f722043323036353a2027"
+    + "415544494f434c49454e545f41435449564154494f4e5f504152414d53273a20"
+    + "bcb1bef0b5c7c1f620becac0ba20bdc4bab0c0dac0d4b4cfb4d92e",
+    "hex",
+  )
+  const decoded = decodeBuildOutput(cp949, "euc-kr")
+  assert.equal(
+    decoded,
+    "main.cpp(3220,5): error C2065: 'AUDIOCLIENT_ACTIVATION_PARAMS': 선언되지 않은 식별자입니다.",
+  )
+  // UTF-8로 그냥 읽으면 대체 문자로 깨진다
+  assert.ok(decodeBuildOutput(cp949, "utf-8").includes("�"))
+  // ASCII/UTF-8 출력은 대체 인코딩이 있어도 그대로 통과한다
+  assert.equal(decodeBuildOutput(Buffer.from("error C2065: x"), "euc-kr"), "error C2065: x")
+  assert.equal(decodeBuildOutput(Buffer.from("오류 C2065", "utf8"), "euc-kr"), "오류 C2065")
+  assert.equal(decodeBuildOutput(Buffer.alloc(0), "euc-kr"), "")
+  assert.equal(decodeBuildOutput(undefined), "")
+  // 지원하지 않는 인코딩 이름을 받아도 던지지 않는다
+  assert.equal(typeof decodeBuildOutput(cp949, "not-a-real-encoding"), "string")
+
+  // 코드 페이지로 읽은 다음이라야 진단 message 가 온전하다
+  const [record] = parseDiagnostics(decoded, { helper: "recorder-helper" })
+  assert.equal(record.code, "C2065")
+  assert.equal(record.line, 3220)
+  assert.equal(record.column, 5)
+  assert.equal(record.message, "'AUDIOCLIENT_ACTIVATION_PARAMS': 선언되지 않은 식별자입니다.")
+})
+
+test("Visual Studio 설치 경로에서 동봉 cmake 후보를 만든다", () => {
+  const installs = [
+    "C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community",
+    "C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise",
+    // 대소문자만 다른 중복은 한 번만 남는다
+    "C:\\Program Files\\Microsoft Visual Studio\\2022\\enterprise",
+    "   ",
+    "",
+  ]
+  const candidates = visualStudioCMakeCandidates(installs)
+  assert.equal(candidates.length, 2)
+  assert.equal(
+    candidates[0],
+    "C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\cmake.exe",
+  )
+  assert.equal(
+    candidates[1],
+    "C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\cmake.exe",
+  )
+  // 연도나 에디션을 상대 경로에 박아 두지 않는다 (vswhere -find 인자로도 쓴다)
+  assert.equal(
+    visualStudioCMakeRelativePath,
+    "Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\cmake.exe",
+  )
+  assert.deepEqual(visualStudioCMakeCandidates([]), [])
+  assert.deepEqual(visualStudioCMakeCandidates(undefined), [])
+})
+
+test("cmake 후보가 여럿이면 최소 버전을 넘는 가장 높은 것을 고른다", () => {
+  const vs2019 = { path: "vs2019\\cmake.exe", version: "3.20.21032501" }
+  const vs2022 = { path: "vs2022\\cmake.exe", version: "3.29.5" }
+  const tooOld = { path: "vs2017\\cmake.exe", version: "3.12.18" }
+  assert.equal(pickBestCMake([vs2019, vs2022, tooOld]), vs2022)
+  assert.equal(pickBestCMake([tooOld, vs2019]), vs2019)
+  // 전부 최소 버전 미만이면 그래도 가장 높은 것을 돌려줘 원인을 드러낸다
+  assert.equal(pickBestCMake([tooOld, { path: "old\\cmake.exe", version: "3.5.0" }]), tooOld)
+  assert.equal(pickBestCMake([]), null)
+  assert.equal(pickBestCMake([{ path: "no-version\\cmake.exe", version: null }]), null)
+  assert.equal(pickBestCMake(undefined), null)
+})
+
+test("PATH 밖 cmake는 자식 PATH 앞에 붙이고 중복 키를 남기지 않는다", () => {
+  // Windows 는 환경 변수 이름의 대소문자를 가리지 않으므로 Path/PATH 가 함께 남으면 안 된다
+  const merged = mergePathEnv({ Path: "C:\\Windows", HOME: "C:\\Users\\Tester" }, "C:\\vs\\cmake\\bin", ";")
+  assert.deepEqual(Object.keys(merged).filter(key => key.toLowerCase() === "path"), ["PATH"])
+  assert.equal(merged.PATH, "C:\\vs\\cmake\\bin;C:\\Windows")
+  assert.equal(merged.HOME, "C:\\Users\\Tester")
+  assert.equal(mergePathEnv({ PATH: "" }, "C:\\vs\\cmake\\bin", ";").PATH, "C:\\vs\\cmake\\bin")
+  assert.equal(mergePathEnv({}, "C:\\vs\\cmake\\bin", ";").PATH, "C:\\vs\\cmake\\bin")
+  // PATH 에서 찾았으면 환경을 건드리지 않는다 (undefined = 그대로 상속)
+  assert.equal(mergePathEnv({ Path: "C:\\Windows" }, null), undefined)
+  assert.equal(mergePathEnv({ Path: "C:\\Windows" }, ""), undefined)
+})
+
+test("도구가 없어 건너뛴 helper는 실패가 아니라 partial로 구분한다", () => {
+  const built = { status: "ok" }
+  const skipped = { status: "skipped" }
+  const failed = { status: "failed" }
+  assert.equal(deriveStatus({ helpers: [built, built], smoke: [] }), "ok")
+  assert.equal(deriveStatus({ helpers: [built, built, built, skipped], smoke: [] }), "partial")
+  assert.equal(deriveStatus({ helpers: [skipped, skipped], smoke: [] }), "missing-toolchain")
+  assert.equal(deriveStatus({ helpers: [built, failed], smoke: [] }), "failed")
+  // 스모크 실패도 전체를 실패로 끌어내린다
+  assert.equal(
+    deriveStatus({ helpers: [built, skipped], smoke: [{ status: "failed" }] }),
+    "failed",
+  )
+  assert.equal(deriveStatus(), "ok")
+
+  assert.equal(statusExitCode("ok"), exitCodes.ok)
+  assert.equal(statusExitCode("failed"), exitCodes.failed)
+  assert.equal(statusExitCode("unsupported-platform"), exitCodes.unsupportedPlatform)
+  // partial 은 예상된 건너뜀이므로 실패(1)가 아니라 도구 없음(3)으로 알린다
+  assert.equal(statusExitCode("partial"), exitCodes.missingToolchain)
+  assert.equal(statusExitCode("missing-toolchain"), exitCodes.missingToolchain)
+})
+
+test("VS 동봉 cmake로 빌드하면 요약 줄에 출처를 표시한다", () => {
+  const summary = buildSummary({
+    status: "partial",
+    exitCode: exitCodes.missingToolchain,
+    generatedAt: "2026-09-18T00:00:00.000Z",
+    durationMs: 120000,
+    platform: { os: "win32", arch: "x64", node: "v20.20.2" },
+    git: { shortSha: "72621e0", dirty: false },
+    toolchain: {
+      cmake: { available: true, version: "3.20.21032501", source: "visual-studio" },
+      msvc: { available: true, version: "17.14.36811.4" },
+      cargo: { available: false, version: null },
+      rustc: { available: false, version: null },
+      generator: {
+        requested: "Visual Studio 16 2019",
+        satisfiable: true,
+        matched: "16.11.36631.11",
+        reason: null,
+      },
+    },
+    missing: ["cargo", "rustc"],
+    helpers: [
+      summarizeHelperLog({ helper: "radeon-helper", status: "ok", durationMs: 40000, text: "" }),
+      summarizeHelperLog({ helper: "turbo-key", status: "skipped", reason: "cargo 없음", text: "" }),
+    ],
+    smoke: [{ helper: "radeon-helper", name: "status", status: "ok" }],
+  })
+  const lines = formatCompactReport(summary)
+  assert.match(lines[0], /status=partial/)
+  assert.match(lines[1], /cmake=3\.20\.21032501\(vs\)/)
+  assert.match(lines[2], /satisfiable=yes toolset=16\.11\.36631\.11/)
+  assert.equal(summary.counts.built, 1)
+  assert.equal(summary.counts.skipped, 1)
+  assert.equal(summary.counts.failed, 0)
+  // PATH 에서 찾은 cmake 는 출처 표시가 붙지 않는다
+  const onPath = formatCompactReport(buildSummary({
+    status: "ok",
+    exitCode: 0,
+    generatedAt: "2026-09-18T00:00:00.000Z",
+    toolchain: { cmake: { available: true, version: "3.29.2", source: "path" } },
+    helpers: [],
+    smoke: [],
+  }))
+  assert.match(onPath[1], /cmake=3\.29\.2 /)
 })
 
 test("저장소 절대 경로를 상대 경로로 바꿔 마스킹 뒤에도 파일을 찾을 수 있다", () => {
