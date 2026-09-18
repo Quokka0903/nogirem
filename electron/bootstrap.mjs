@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { app, dialog } from "electron"
 
 const logDirectory = process.env.APPDATA
-  ? join(process.env.APPDATA, "마비노기 렘 부스터", "logs")
+  ? join(process.env.APPDATA, "마비노기 꿔 부스터", "logs")
   : join(app.getPath("userData"), "logs")
 const logPath = join(logDirectory, "startup.log")
 const originalConsoleError = console.error.bind(console)
@@ -42,7 +42,7 @@ globalThis.__nogiremWriteStartupLog = (level, ...values) => {
 process.on("uncaughtException", error => {
   writeLog("UNCAUGHT", [error])
   try {
-    dialog.showErrorBox("마비노기 렘 부스터 오류", error?.message ?? String(error))
+    dialog.showErrorBox("마비노기 꿔 부스터 오류", error?.message ?? String(error))
   } catch {
   }
   app.exit(1)
@@ -63,7 +63,7 @@ try {
 } catch (error) {
   writeLog("BOOT_FAILURE", [error])
   try {
-    dialog.showErrorBox("마비노기 렘 부스터 시작 실패", error?.message ?? String(error))
+    dialog.showErrorBox("마비노기 꿔 부스터 시작 실패", error?.message ?? String(error))
   } catch {
   }
   app.exit(1)

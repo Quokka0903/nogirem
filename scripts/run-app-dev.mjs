@@ -33,7 +33,7 @@ async function waitForNogirem(url, timeoutMs = 15000) {
     try {
       const response = await fetch(url)
       const document = await response.text()
-      if (response.ok && document.includes("마비노기 렘 부스터")) return
+      if (response.ok && document.includes("마비노기 꿔 부스터")) return
     } catch {
     }
     await new Promise(resolveDelay => setTimeout(resolveDelay, 100))

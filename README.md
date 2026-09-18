@@ -1,4 +1,4 @@
-# 마비노기 렘 부스터
+# 마비노기 꿔 부스터
 
 마비노기를 조금 더 부드럽고 안정적으로 실행할 수 있도록 Windows와 그래픽 드라이버의
 최적화 설정을 한곳에서 관리하는 데스크톱 앱입니다.
@@ -8,6 +8,7 @@
 
 - 최신 설치 파일: [GitHub Releases](https://github.com/rubystarashe/nogirem/releases)
 - 제작자: 류트 서버 `[렘]`
+- 로컬라이징: 류트 서버 `[꿔까]`
 - YouTube: [마비노기 렘](https://www.youtube.com/channel/UCb7m0UV734CHm78Mb0zEBHg)
 
 ## 만든 이유

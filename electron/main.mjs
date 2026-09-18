@@ -319,7 +319,7 @@ function getBlackboxPaths() {
     eventsPath: join(directory, "blackbox-events.log"),
     helperLogPath: join(directory, "recorder-helper.log"),
     windowStatePath: join(directory, "window.json"),
-    storagePath: join(app.getPath("videos"), "마비노기 렘 블랙박스"),
+    storagePath: join(app.getPath("videos"), "마비노기 꿔 블랙박스"),
   }
 }
 
@@ -446,7 +446,7 @@ function resolveBlackboxRingStoragePath(setting, paths = getBlackboxPaths()) {
     ? setting.ringStorageDrive.toUpperCase()
     : defaultDrive
   if (drive === defaultDrive) return join(paths.storagePath, "Ring")
-  return join(`${drive}\\`, "마비노기 렘 블랙박스", "Ring")
+  return join(`${drive}\\`, "마비노기 꿔 블랙박스", "Ring")
 }
 
 function resolveBlackboxRingStoragePaths(
@@ -458,7 +458,7 @@ function resolveBlackboxRingStoragePaths(
     resolveBlackboxRingStoragePath(setting, paths),
     join(paths.storagePath, "Ring"),
     ...storageDrives.map(drive => (
-      join(`${drive.id}\\`, "마비노기 렘 블랙박스", "Ring")
+      join(`${drive.id}\\`, "마비노기 꿔 블랙박스", "Ring")
     )),
   ]
   const seen = new Set()
@@ -1887,7 +1887,7 @@ if (affinityHelperMode) {
       void startApplication().catch(error => {
         console.error(error)
         dialog.showErrorBox(
-          "마비노기 렘 부스터 시작 실패",
+          "마비노기 꿔 부스터 시작 실패",
           error?.message ?? String(error),
         )
         app.exit(1)
@@ -3257,7 +3257,7 @@ function showApplicationUpdateNotification(version = null) {
     }
   })
 
-  const message = "마비노기 렘 부스터 새 버전 업데이트가 가능합니다"
+  const message = "마비노기 꿔 부스터 새 버전 업데이트가 가능합니다"
   const document = `<!doctype html>
 <html lang="ko">
 <meta charset="UTF-8">
@@ -5079,7 +5079,7 @@ async function restoreNetwork() {
 }
 
 function getDxvkDirectory() {
-  return join(app.getPath("appData"), "마비노기 렘 부스터", "vulkan")
+  return join(app.getPath("appData"), "마비노기 꿔 부스터", "vulkan")
 }
 
 async function getDxvkTargetPath() {
@@ -7094,7 +7094,7 @@ function ensureApplicationTray() {
   if (applicationTray && !applicationTray.isDestroyed()) return applicationTray
   applicationTray = new Tray(iconPath)
   updateApplicationTrayIcon()
-  applicationTray.setToolTip("마비노기 렘 부스터")
+  applicationTray.setToolTip("마비노기 꿔 부스터")
   applicationTray.setContextMenu(Menu.buildFromTemplate([
     {
       label: "열기",

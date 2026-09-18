@@ -642,7 +642,7 @@
         alt=""
         draggable="false"
       />
-      <strong>마비노기 렘 부스터</strong>
+      <strong>마비노기 꿔 부스터</strong>
     </div>
   {/if}
 </div>

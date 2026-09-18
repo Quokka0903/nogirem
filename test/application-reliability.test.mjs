@@ -55,7 +55,7 @@ test("개발 앱은 빈 전용 포트를 찾아 동일 서버 주소만 사용�
   assert.equal(packageInfo.scripts["app:dev"], "node scripts/run-app-dev.mjs")
   assert.match(developmentLauncher, /server\.listen\(0, host/)
   assert.match(developmentLauncher, /"--strictPort"/)
-  assert.match(developmentLauncher, /document\.includes\("마비노기 렘 부스터"\)/)
+  assert.match(developmentLauncher, /document\.includes\("마비노기 꿔 부스터"\)/)
   assert.match(developmentLauncher, /`--dev-server-url=\$\{serverUrl\}`/)
   assert.match(electronMain, /function resolveDevelopmentServerUrl\(\)/)
   assert.match(electronMain, /developmentPageUrl\("blackbox-manager\.html"\)/)
@@ -94,7 +94,7 @@ test("새 앱 버전은 주기적으로 확인하고 메인 문구와 우측 하
   )
   assert.match(
     electronMain,
-    /마비노기 렘 부스터 새 버전 업데이트가 가능합니다/,
+    /마비노기 꿔 부스터 새 버전 업데이트가 가능합니다/,
   )
   assert.match(
     applicationView,

@@ -2004,7 +2004,7 @@
 </script>
 
 <svelte:head>
-  <title>마비노기 렘 부스터 - {packageInfo.version}</title>
+  <title>마비노기 꿔 부스터 - {packageInfo.version}</title>
 </svelte:head>
 
 <div
@@ -2079,7 +2079,8 @@
     || Boolean(colorTransition)}
   onclick={toggleCreatorView}
 >
-  [류트@렘] 제작
+  <span class="creator-credit-line">[류트@렘] 제작</span>
+  <span class="creator-credit-line">[류트@꿔까] 로컬라이징</span>
 </button>
 
 <main class="compact-shell">
@@ -2360,9 +2361,9 @@
           onclick={toggleFrameBoostFromStatus}
         >
           {#if startupIdentityPhase === "brand"}
-            <span class="startup-identity-text">마비노기 렘 부스터</span>
+            <span class="startup-identity-text">마비노기 꿔 부스터</span>
           {:else if startupIdentityPhase === "transition"}
-            <span class="startup-identity-text identity-roulette-out">마비노기 렘 부스터</span>
+            <span class="startup-identity-text identity-roulette-out">마비노기 꿔 부스터</span>
             <span
               class="startup-identity-text identity-roulette-in"
               onanimationend={finishStartupIdentityTransition}

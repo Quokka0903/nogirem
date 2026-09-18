@@ -852,6 +852,11 @@ footer {
   -webkit-app-region: no-drag;
 }
 
+.creator-credit-line {
+  display: block;
+  text-align: right;
+}
+
 .creator-credit.entered {
   opacity: 1;
   transform: translateX(0);
