@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <cstdlib>
 #include <chrono>
 #include <cwchar>
 #include <filesystem>
@@ -1235,6 +1236,224 @@ void runApplyCommand(
     state.error = failure;
 }
 
+// 영수증 되읽기.
+//
+// runApplyCommand는 Set* 호출 전에 영수증을 디스크에 남긴다. 그런데 그 파일을 다시
+// 읽는 쪽이 없으면 앱이나 daemon이 죽는 순간 사용자의 원래 설정을 되돌릴 방법이
+// 사라진다. 아래는 그 되읽기 경로이며, 영수증은 이 helper가 직접 쓴 파일이라 형태가
+// 고정되어 있으므로 takeControlCommand와 같은 이유로 외부 JSON 파서를 들이지 않고
+// 키 구간을 잘라 읽는다.
+
+bool verticalSyncModeFromKey(const std::string& key, ADLX_WAIT_FOR_VERTICAL_REFRESH_MODE& mode)
+{
+    if (key == "alwaysOff") { mode = WFVR_ALWAYS_OFF; return true; }
+    if (key == "offUnlessAppSpecifies") { mode = WFVR_OFF_UNLESS_APP_SPECIFIES; return true; }
+    if (key == "onUnlessAppSpecifies") { mode = WFVR_ON_UNLESS_APP_SPECIFIES; return true; }
+    if (key == "alwaysOn") { mode = WFVR_ALWAYS_ON; return true; }
+    return false;
+}
+
+size_t findJsonKey(const std::string& text, size_t from, size_t limit, const std::string& key)
+{
+    const std::string needle = "\"" + key + "\":";
+    const size_t found = text.find(needle, from);
+    if (found == std::string::npos || found + needle.size() > limit) return std::string::npos;
+    return found + needle.size();
+}
+
+// key 가 가리키는 중괄호 객체의 [begin, end) 구간을 돌려준다.
+bool findJsonObject(
+    const std::string& text,
+    size_t from,
+    size_t limit,
+    const std::string& key,
+    size_t& begin,
+    size_t& end)
+{
+    const size_t start = findJsonKey(text, from, limit, key);
+    if (start == std::string::npos || start >= text.size() || text[start] != '{') return false;
+    int depth = 0;
+    for (size_t index = start; index < text.size() && index < limit; ++index)
+    {
+        if (text[index] == '{') ++depth;
+        else if (text[index] == '}' && --depth == 0)
+        {
+            begin = start;
+            end = index + 1;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool readJsonBool(
+    const std::string& text, size_t from, size_t limit, const std::string& key, bool& value)
+{
+    const size_t start = findJsonKey(text, from, limit, key);
+    if (start == std::string::npos) return false;
+    if (text.compare(start, 4, "true") == 0) { value = true; return true; }
+    if (text.compare(start, 5, "false") == 0) { value = false; return true; }
+    return false;
+}
+
+bool readJsonNumber(
+    const std::string& text, size_t from, size_t limit, const std::string& key, long long& value)
+{
+    const size_t start = findJsonKey(text, from, limit, key);
+    if (start == std::string::npos) return false;
+    size_t digits = start;
+    if (digits < text.size() && (text[digits] == '-' || text[digits] == '+')) ++digits;
+    const size_t firstDigit = digits;
+    while (digits < text.size() && text[digits] >= '0' && text[digits] <= '9') ++digits;
+    if (digits == firstDigit) return false;
+    value = std::strtoll(text.c_str() + start, nullptr, 10);
+    return true;
+}
+
+bool readJsonString(
+    const std::string& text, size_t from, size_t limit, const std::string& key, std::string& value)
+{
+    const size_t start = findJsonKey(text, from, limit, key);
+    if (start == std::string::npos || start >= text.size() || text[start] != '"') return false;
+    const size_t close = text.find('"', start + 1);
+    if (close == std::string::npos || close >= limit) return false;
+    value = text.substr(start + 1, close - start - 1);
+    return true;
+}
+
+// buildSettingsJson 이 만든 구간을 그대로 되읽는다. 하나라도 모양이 다르면 통째로
+// 버린다. 반쯤 읽은 영수증으로 사용자의 설정을 건드리는 편보다 되돌리기를 포기하고
+// 사람이 직접 고치게 두는 편이 안전하다.
+bool parseSettingsJson(const std::string& text, size_t begin, size_t end, GpuSettings& settings)
+{
+    size_t objectBegin = 0;
+    size_t objectEnd = 0;
+
+    if (!findJsonObject(text, begin, end, "verticalSync", objectBegin, objectEnd)) return false;
+    if (!readJsonBool(text, objectBegin, objectEnd, "supported", settings.verticalSyncSupported))
+        return false;
+    if (settings.verticalSyncSupported)
+    {
+        std::string mode;
+        if (!readJsonString(text, objectBegin, objectEnd, "mode", mode)) return false;
+        if (!verticalSyncModeFromKey(mode, settings.verticalSyncMode)) return false;
+    }
+
+    if (!findJsonObject(text, begin, end, "enhancedSync", objectBegin, objectEnd)) return false;
+    if (!readJsonBool(text, objectBegin, objectEnd, "supported", settings.enhancedSyncSupported))
+        return false;
+    if (!readJsonBool(text, objectBegin, objectEnd, "enabled", settings.enhancedSyncEnabled))
+        return false;
+
+    if (!findJsonObject(text, begin, end, "chill", objectBegin, objectEnd)) return false;
+    if (!readJsonBool(text, objectBegin, objectEnd, "supported", settings.chillSupported))
+        return false;
+    if (!readJsonBool(text, objectBegin, objectEnd, "enabled", settings.chillEnabled)) return false;
+
+    if (!findJsonObject(text, begin, end, "antiLag", objectBegin, objectEnd)) return false;
+    if (!readJsonBool(text, objectBegin, objectEnd, "supported", settings.antiLag.supported))
+        return false;
+    if (!readJsonBool(text, objectBegin, objectEnd, "enabled", settings.antiLag.enabled))
+        return false;
+    if (!readJsonBool(
+            text, objectBegin, objectEnd, "levelSupported", settings.antiLag.levelSupported))
+        return false;
+    if (settings.antiLag.levelSupported)
+    {
+        std::string level;
+        if (!readJsonString(text, objectBegin, objectEnd, "level", level)) return false;
+        // 안전 규칙: 영수증에 Anti-Lag Next가 들어 있을 수는 없지만(그 경우 적용 자체를
+        // 거부한다), 손으로 고친 파일까지 신뢰하지는 않는다. antiLag 이외의 값은 버린다.
+        if (level != "antiLag") return false;
+        settings.antiLag.level = ANTILAG;
+    }
+
+    if (!findJsonObject(text, begin, end, "frameRateTarget", objectBegin, objectEnd)) return false;
+    if (!readJsonBool(text, objectBegin, objectEnd, "supported", settings.frameRateTarget.supported))
+        return false;
+    if (!readJsonBool(text, objectBegin, objectEnd, "enabled", settings.frameRateTarget.enabled))
+        return false;
+    long long fps = 0;
+    if (!readJsonNumber(text, objectBegin, objectEnd, "fps", fps)) return false;
+    settings.frameRateTarget.fps = static_cast<adlx_int>(fps);
+    long long minFps = 0;
+    long long maxFps = 0;
+    if (readJsonNumber(text, objectBegin, objectEnd, "minFps", minFps)
+        && readJsonNumber(text, objectBegin, objectEnd, "maxFps", maxFps))
+    {
+        settings.frameRateTarget.rangeKnown = true;
+        settings.frameRateTarget.minFps = static_cast<adlx_int>(minFps);
+        settings.frameRateTarget.maxFps = static_cast<adlx_int>(maxFps);
+    }
+    return true;
+}
+
+// 기동 시 남아있는 영수증을 되읽어 되돌리기 대상으로 삼는다. 지금 붙어 있는 GPU가
+// 영수증에 적힌 GPU와 uniqueId 로 모두 맞아떨어질 때만 받아들인다. 그래픽카드를
+// 바꿔 끼운 PC에서 남의 설정을 덮어쓰지 않기 위한 조건이다.
+bool loadReceipt(const fs::path& receiptPath, DaemonState& state)
+{
+    std::ifstream input(receiptPath, std::ios::binary);
+    if (!input) return false;
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    input.close();
+    const std::string text = contents.str();
+    if (text.empty()) return false;
+
+    long long version = 0;
+    if (!readJsonNumber(text, 0, text.size(), "version", version) || version != 1) return false;
+
+    const size_t listStart = findJsonKey(text, 0, text.size(), "gpus");
+    if (listStart == std::string::npos || listStart >= text.size() || text[listStart] != '[')
+        return false;
+
+    std::vector<GpuSnapshot> receipt;
+    size_t cursor = listStart;
+    for (;;)
+    {
+        const size_t indexAt = findJsonKey(text, cursor, text.size(), "index");
+        if (indexAt == std::string::npos) break;
+        long long listIndex = 0;
+        long long uniqueId = -1;
+        if (!readJsonNumber(text, cursor, text.size(), "index", listIndex)) return false;
+        if (!readJsonNumber(text, indexAt, text.size(), "uniqueId", uniqueId)) return false;
+        GpuSnapshot snapshot;
+        snapshot.listIndex = static_cast<adlx_uint>(listIndex);
+        snapshot.uniqueId = static_cast<adlx_int>(uniqueId);
+        readJsonString(text, indexAt, text.size(), "name", snapshot.name);
+        size_t begin = 0;
+        size_t end = 0;
+        if (!findJsonObject(text, indexAt, text.size(), "before", begin, end)) return false;
+        if (!parseSettingsJson(text, begin, end, snapshot.settings)) return false;
+        receipt.push_back(snapshot);
+        cursor = end;
+    }
+    if (receipt.empty()) return false;
+
+    for (const GpuSnapshot& snapshot : receipt)
+    {
+        if (snapshot.uniqueId < 0) return false;
+        bool matched = false;
+        for (const GpuSnapshot& candidate : state.gpus)
+        {
+            if (candidate.uniqueId == snapshot.uniqueId) matched = true;
+        }
+        if (!matched) return false;
+    }
+
+    long long capturedAt = 0;
+    readJsonNumber(text, 0, text.size(), "capturedAt", capturedAt);
+    bool applied = false;
+    readJsonBool(text, 0, text.size(), "applied", applied);
+
+    state.receipt = receipt;
+    state.receiptCapturedAt = capturedAt;
+    state.receiptApplied = applied;
+    state.hasReceipt = true;
+    return true;
+}
+
 void runRestoreCommand(
     DaemonState& state,
     IADLXGPUList* gpus,
@@ -1390,7 +1609,10 @@ int runDaemon(const DaemonOptions& options)
         state.lastResult = "error";
         state.error = "Radeon 설정 조회 중 오류가 발생했습니다";
     }
-    writeFileAtomic(statusPath, buildStatusJson(state));
+    // 남아있는 영수증을 되읽는다. 앱이나 daemon이 적용 도중/직후에 죽어도 다음 기동에서
+    // 사용자의 원래 설정으로 되돌릴 수 있어야 한다.
+    if (state.detected && loadReceipt(receiptPath, state))
+        writeFileAtomic(statusPath, buildStatusJson(state));
 
     ULONGLONG nextRefresh = GetTickCount64() + daemonRefreshIntervalMs;
     while (true)
