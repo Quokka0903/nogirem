@@ -26,6 +26,15 @@ contextBridge.exposeInMainWorld("nogirem", {
   refreshMemory: () => ipcRenderer.invoke("optimization:refresh-memory"),
   getMemoryRuntime: () => ipcRenderer.invoke("optimization:get-memory-runtime"),
   optimizeGraphics: () => ipcRenderer.invoke("optimization:optimize-graphics"),
+  getRadeonSession: () => ipcRenderer.invoke("optimization:get-radeon-session"),
+  setRadeonSessionEnabled: enabled => {
+    return ipcRenderer.invoke("optimization:set-radeon-session-enabled", enabled)
+  },
+  onRadeonSessionChanged: callback => {
+    const listener = (_event, state) => callback(state)
+    ipcRenderer.on("optimization:radeon-session-changed", listener)
+    return () => ipcRenderer.removeListener("optimization:radeon-session-changed", listener)
+  },
   optimizeNvidia: () => ipcRenderer.invoke("optimization:optimize-nvidia"),
   optimizeNetwork: () => ipcRenderer.invoke("optimization:optimize-network"),
   restoreNetwork: () => ipcRenderer.invoke("optimization:restore-network"),

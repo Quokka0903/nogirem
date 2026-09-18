@@ -45,6 +45,11 @@ import { advanceDownloadProgress } from "../src/update-progress.mjs"
 import { getYouTubeChannelProfile } from "../src/youtube-channel.mjs"
 import { assessExitConfirmation } from "../src/exit-confirmation.mjs"
 import {
+  antiLagNextRefusalMessage,
+  createRadeonDaemonClient,
+  getRadeonDaemonPaths,
+} from "../src/radeon.mjs"
+import {
   listNativeProcesses,
   matchesGameProcess,
   queryProcessPath,
@@ -2272,6 +2277,249 @@ async function checkAffinity({ refreshNic = false } = {}) {
     error: previousNicFailureResolved ? null : runtime.error,
     nic,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Radeon 게임 세션
+//
+// ADLX 는 마비노기 전용 프로필을 만들 수 없어 Radeon 설정이 그래픽카드 전역에
+// 적용되고 앱을 종료해도 남는다. 그래서 적용 시점을 게임 실행 구간으로 묶는다.
+//   - 게임이 뜨면 적용하고 영수증(before 스냅샷)을 남긴다
+//   - 게임이 꺼지면 영수증으로 되돌린다
+//   - 적용 중에 앱이나 daemon 이 죽어도 영수증이 디스크에 남아 다음 기동에서 복구한다
+// 이렇게 하면 다른 게임이 영향을 받는 구간이 마비노기를 켜 둔 동안으로 제한된다.
+// ---------------------------------------------------------------------------
+
+const radeonSessionPollIntervalMs = 1000
+const radeonSessionFallbackIntervalMs = 5000
+
+let radeonSessionFallbackCheckedAt = 0
+let radeonSessionDesiredEnabled = false
+let radeonSessionClient = null
+let radeonSessionMonitor = null
+let radeonSessionBusy = false
+let radeonSessionGameActive = false
+let radeonSessionApplied = false
+let radeonSessionSupported = null
+let radeonSessionError = null
+let radeonSessionLastAction = null
+
+function getRadeonPaths() {
+  const directory = join(app.getPath("userData"), "radeon")
+  return {
+    ...getRadeonDaemonPaths(directory),
+    settingsPath: join(directory, "settings.json"),
+  }
+}
+
+function ensureRadeonSessionClient() {
+  const paths = getRadeonPaths()
+  if (radeonSessionClient?.directory !== paths.directory) {
+    radeonSessionClient = createRadeonDaemonClient({
+      directory: paths.directory,
+      statusPath: paths.statusPath,
+      controlPath: paths.controlPath,
+      receiptPath: paths.receiptPath,
+      parentPid: process.pid,
+    })
+  }
+  return radeonSessionClient
+}
+
+async function readRadeonSessionSetting() {
+  const settings = await readJson(getRadeonPaths().settingsPath)
+  return { sessionEnabled: settings?.sessionEnabled === true }
+}
+
+async function writeRadeonSessionSetting(sessionEnabled) {
+  const paths = getRadeonPaths()
+  await mkdir(paths.directory, { recursive: true })
+  await writeJsonAtomic(paths.settingsPath, {
+    sessionEnabled: Boolean(sessionEnabled),
+    updatedAt: Date.now(),
+  })
+}
+
+function buildRadeonSessionState() {
+  return {
+    sessionEnabled: radeonSessionDesiredEnabled,
+    supported: radeonSessionSupported,
+    gameActive: radeonSessionGameActive,
+    applied: radeonSessionApplied,
+    lastAction: radeonSessionLastAction,
+    error: radeonSessionError,
+  }
+}
+
+function notifyRadeonSessionChanged() {
+  if (!primaryWindow || primaryWindow.isDestroyed()) return
+  primaryWindow.webContents.send("optimization:radeon-session-changed", buildRadeonSessionState())
+}
+
+// 적용 거부(Anti-Lag Next)는 오류가 아니라 정상 응답이다. 사용자 설정을 그대로 두고
+// 이유만 남긴 뒤 이번 세션에서는 다시 시도하지 않는다.
+async function applyRadeonForGameSession() {
+  const client = ensureRadeonSessionClient()
+  const started = await client.start()
+  radeonSessionSupported = started.detected === true
+  if (!radeonSessionSupported) {
+    radeonSessionError = started.error ?? "AMD Radeon GPU를 찾지 못했습니다"
+    await client.stop().catch(() => {})
+    return
+  }
+  await client.apply()
+  radeonSessionApplied = true
+  radeonSessionError = null
+  radeonSessionLastAction = "applied"
+}
+
+async function restoreRadeonForGameSession() {
+  const client = ensureRadeonSessionClient()
+  const started = await client.start()
+  radeonSessionSupported = started.detected === true
+  if (started.receipt == null) {
+    // 되돌릴 기록이 없으면 이미 복구된 것으로 본다.
+    radeonSessionApplied = false
+    radeonSessionLastAction = "restored"
+    await client.stop().catch(() => {})
+    return
+  }
+  await client.restore()
+  radeonSessionApplied = false
+  radeonSessionError = null
+  radeonSessionLastAction = "restored"
+  await client.stop().catch(() => {})
+}
+
+// affinity helper 가 이미 게임을 감시하고 있으면 그 결과를 쓴다. 프레임 부스트를 꺼
+// 두면 helper 가 없으므로 직접 확인하되, 매 주기 프로세스 목록을 훑지 않도록 간격을 둔다.
+async function readRadeonSessionGameActive() {
+  const status = await readAffinityRuntimeStatus()
+  if (status.running) return status.gameActive === true
+  const now = Date.now()
+  if (now - radeonSessionFallbackCheckedAt < radeonSessionFallbackIntervalMs) {
+    return radeonSessionGameActive
+  }
+  radeonSessionFallbackCheckedAt = now
+  return detectMabinogi()
+}
+
+async function syncRadeonSessionWithGame(gameActive) {
+  if (radeonSessionBusy) return
+  if (gameActive === radeonSessionApplied) return
+  radeonSessionBusy = true
+  try {
+    if (gameActive) await applyRadeonForGameSession()
+    else await restoreRadeonForGameSession()
+    notifyRadeonSessionChanged()
+  } catch (error) {
+    // 같은 실패를 1초마다 반복하지 않도록 상태를 기록하고 전이를 소비한다.
+    const message = error?.message ?? String(error)
+    const refused = message === antiLagNextRefusalMessage
+    radeonSessionError = message
+    radeonSessionLastAction = refused
+      ? "refused"
+      : (gameActive ? "apply-failed" : "restore-failed")
+    radeonSessionApplied = gameActive
+    if (refused) console.warn("Radeon 게임 세션 적용 거부", message)
+    else console.error("Radeon 게임 세션 처리 실패", error)
+    notifyRadeonSessionChanged()
+  } finally {
+    radeonSessionBusy = false
+  }
+}
+
+function startRadeonSessionMonitor() {
+  clearInterval(radeonSessionMonitor)
+  radeonSessionMonitor = setInterval(async () => {
+    if (!radeonSessionDesiredEnabled || applicationExitInProgress) return
+    try {
+      const gameActive = await readRadeonSessionGameActive()
+      if (gameActive !== radeonSessionGameActive) {
+        radeonSessionGameActive = gameActive
+        notifyRadeonSessionChanged()
+      }
+      await syncRadeonSessionWithGame(gameActive)
+    } catch (error) {
+      console.error("Radeon 게임 세션 감시 실패", error)
+    }
+  }, radeonSessionPollIntervalMs)
+}
+
+function stopRadeonSessionMonitor() {
+  clearInterval(radeonSessionMonitor)
+  radeonSessionMonitor = null
+}
+
+// 앱이나 daemon 이 적용 중에 죽으면 영수증만 디스크에 남는다. 다음 기동에서 그걸
+// 찾아, 게임이 이미 꺼졌다면 사용자의 원래 설정으로 되돌린다. 게임이 아직 떠 있으면
+// 그 세션이 이어지는 것으로 보고 적용 상태를 유지한다.
+async function recoverRadeonSessionOnStartup() {
+  const client = ensureRadeonSessionClient()
+  const receipt = await client.readReceipt().catch(() => null)
+  if (!receipt) return
+  // 기동 직후에는 affinity helper 상태가 아직 없을 수 있다. 여기서 잘못 판단하면
+  // 게임이 켜져 있는데 설정을 되돌려 버리므로 프로세스를 직접 확인한다.
+  const gameActive = await detectMabinogi().catch(() => false)
+  if (gameActive) {
+    radeonSessionGameActive = true
+    radeonSessionApplied = true
+    radeonSessionLastAction = "resumed"
+    return
+  }
+  radeonSessionApplied = true
+  await syncRadeonSessionWithGame(false)
+}
+
+async function initializeRadeonSession() {
+  const setting = await readRadeonSessionSetting()
+  radeonSessionDesiredEnabled = setting.sessionEnabled
+  // 영수증은 이 기능이 적용했을 때만 남는다. 그 사이 기능을 꺼 두었더라도 남은 적용을
+  // 되돌려 주어야 사용자가 원래 설정을 잃지 않는다.
+  await recoverRadeonSessionOnStartup()
+  if (!radeonSessionDesiredEnabled) return buildRadeonSessionState()
+  startRadeonSessionMonitor()
+  return buildRadeonSessionState()
+}
+
+async function setRadeonSessionEnabled(enabled) {
+  if (typeof enabled !== "boolean") {
+    throw new Error("Radeon 게임 세션 설정 값이 올바르지 않습니다")
+  }
+  radeonSessionDesiredEnabled = enabled
+  await writeRadeonSessionSetting(enabled)
+  if (enabled) {
+    radeonSessionError = null
+    await recoverRadeonSessionOnStartup()
+    startRadeonSessionMonitor()
+    const status = await readAffinityRuntimeStatus().catch(() => null)
+    radeonSessionGameActive = status?.gameActive === true
+    await syncRadeonSessionWithGame(radeonSessionGameActive)
+  } else {
+    stopRadeonSessionMonitor()
+    // 기능을 끌 때 적용 상태를 남겨 두면 사용자가 되돌릴 방법을 잃는다.
+    if (radeonSessionApplied) await syncRadeonSessionWithGame(false)
+  }
+  return buildRadeonSessionState()
+}
+
+// 종료 시: 게임이 아직 떠 있으면 적용을 유지하고(영수증도 남긴다) 다음 기동에서
+// 복구한다. 게임이 이미 꺼졌으면 여기서 되돌린다.
+async function finishRadeonSessionForExit() {
+  stopRadeonSessionMonitor()
+  if (!radeonSessionApplied) {
+    await radeonSessionClient?.stop().catch(() => {})
+    return
+  }
+  // affinity helper 는 이 시점에 이미 정리되고 있을 수 있다. 그 상태를 읽으면 게임이
+  // 켜져 있어도 꺼진 것으로 보이므로 프로세스를 직접 확인한다.
+  const gameActive = await detectMabinogi().catch(() => false)
+  if (gameActive) {
+    await radeonSessionClient?.stop().catch(() => {})
+    return
+  }
+  radeonSessionBusy = false
+  await restoreRadeonForGameSession()
 }
 
 function quotePowerShellLiteral(value) {
@@ -4842,6 +5090,7 @@ async function finishApplicationExitWithoutAppliedBoost() {
     stopTurboKeyHelper(),
     stopInputGuardHelper(),
     stopBlackboxHelper(),
+    finishRadeonSessionForExit(),
   ])
   for (const result of results) {
     if (result.status === "rejected") console.error(result.reason)
@@ -4871,6 +5120,7 @@ async function finishApplicationExit(action) {
     stopTurboKeyHelper(),
     stopInputGuardHelper(),
     stopBlackboxHelper(),
+    finishRadeonSessionForExit(),
   ])
   for (const result of results) {
     if (result.status === "rejected") console.error(result.reason)
@@ -5660,6 +5910,13 @@ function registerIpc() {
     return runtime
   })
   ipcMain.handle("optimization:optimize-graphics", () => optimizeGraphics())
+  ipcMain.handle("optimization:get-radeon-session", () => buildRadeonSessionState())
+  ipcMain.handle("optimization:set-radeon-session-enabled", (event, enabled) => {
+    if (BrowserWindow.fromWebContents(event.sender) !== primaryWindow) {
+      throw new Error("허용되지 않은 Radeon 게임 세션 설정 요청입니다")
+    }
+    return setRadeonSessionEnabled(enabled)
+  })
   ipcMain.handle("optimization:optimize-nvidia", () => optimizeGraphics())
   ipcMain.handle("optimization:optimize-network", () => optimizeNetwork())
   ipcMain.handle("optimization:restore-network", () => restoreNetwork())
@@ -7381,6 +7638,11 @@ async function startApplication() {
     .then(() => {
       writeStartupLog("마비노기 입력 기능 초기화 처리 종료")
     })
+  void initializeRadeonSession()
+    .catch(error => console.error("Radeon 게임 세션 초기화 실패", error))
+    .then(() => {
+      writeStartupLog("Radeon 게임 세션 초기화 처리 종료")
+    })
   if (app.isPackaged && applicationUpdatesEnabled) {
     applicationUpdateStartupTimer = setTimeout(() => {
       applicationUpdateStartupTimer = null
@@ -7403,6 +7665,7 @@ async function startApplication() {
   })
   app.on("window-all-closed", () => app.quit())
   app.on("will-quit", () => {
+    stopRadeonSessionMonitor()
     clearTimeout(applicationUpdateStartupTimer)
     applicationUpdateStartupTimer = null
     clearInterval(applicationUpdateCheckTimer)

@@ -131,6 +131,8 @@
   }
   let refreshing = false
   let includeNic = false
+  let radeonSession = null
+  let radeonSessionBusy = false
   let affinityRuntimeSyncing = false
   let dxvkRuntimeSyncing = false
   let memoryRuntimeSyncing = false
@@ -1557,6 +1559,30 @@
     }
   }
 
+  async function toggleRadeonSession(enabled) {
+    radeonSessionBusy = true
+    try {
+      radeonSession = await window.nogirem.setRadeonSessionEnabled(enabled)
+    } catch (error) {
+      radeonSession = {
+        ...(radeonSession ?? {}),
+        sessionEnabled: !enabled,
+        error: error?.message ?? String(error),
+      }
+    } finally {
+      radeonSessionBusy = false
+    }
+  }
+
+  function radeonSessionStateText(state) {
+    if (!state) return ""
+    if (state.error) return state.error
+    if (!state.sessionEnabled) return "게임 실행과 무관하게 수동으로만 적용합니다"
+    if (state.applied) return "적용 중 · 마비노기를 종료하면 되돌립니다"
+    if (state.gameActive) return "마비노기 실행 확인됨"
+    return "마비노기가 실행되면 적용합니다"
+  }
+
   function graphicsReady(data) {
     return data?.supported && data?.detected && data?.allMet
   }
@@ -1898,6 +1924,14 @@
   onMount(() => {
     document.addEventListener("visibilitychange", syncPageVisibility)
     window.addEventListener("keydown", handleApplicationKeydown, true)
+    const removeRadeonSessionListener = window.nogirem.onRadeonSessionChanged(state => {
+      radeonSession = state
+    })
+    void window.nogirem.getRadeonSession()
+      .then(state => {
+        radeonSession = state
+      })
+      .catch(() => {})
     const removeGraphicsStatusListener = window.nogirem.onGraphicsStatusChanged(status => {
       updateService("graphics", { loading: false, data: status, error: null })
     })
@@ -1992,6 +2026,7 @@
       document.removeEventListener("visibilitychange", syncPageVisibility)
       window.removeEventListener("keydown", handleApplicationKeydown, true)
       removeGraphicsStatusListener()
+      removeRadeonSessionListener()
       removeDxvkStatusListener()
       removeBlackboxStatusListener()
       removeVisualActivityListener()
@@ -3087,6 +3122,20 @@
           <p class="meta">
             적용 범위: {services.graphics.data.scopeLabel ?? "확인되지 않음"}
           </p>
+          {#if services.graphics.data.vendor === "amd"}
+            <label class="option-row">
+              <input
+                type="checkbox"
+                checked={radeonSession?.sessionEnabled === true}
+                disabled={radeonSessionBusy || services.graphics.optimizing}
+                onchange={event => toggleRadeonSession(event.currentTarget.checked)}
+              />
+              <span>
+                마비노기 실행 중에만 적용
+                <small>{radeonSessionStateText(radeonSession)}</small>
+              </span>
+            </label>
+          {/if}
         {:else}
           <p class="empty">{services.graphics.data.reason ?? "지원되는 GPU를 찾지 못했습니다"}</p>
         {/if}
