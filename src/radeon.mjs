@@ -502,6 +502,7 @@ export function createRadeonDaemonClient({
     await writeControl(controlPath, control)
     if (command === "stop") return control
     const current = await waitForStatus(value => value.lastCommand === command
+      && value.lastResult != null
       && value.updatedAt != null
       && value.updatedAt >= control.requestedAt)
     if (!current) {

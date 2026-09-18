@@ -196,3 +196,38 @@ test("종료와 기동 판정은 affinity helper 상태에 의존하지 않는�
   )
   assert.doesNotMatch(recovery, /readAffinityRuntimeStatus/)
 })
+
+test("apply 도중의 중간 상태를 실패로 읽지 않는다", async () => {
+  // daemon 은 영수증을 남긴 직후, Set* 을 시작하기 전에 상태를 한 번 기록한다.
+  // 그 기록에는 lastCommand 만 들어 있고 lastResult 는 비어 있다.
+  const base = {
+    running: true,
+    detected: true,
+    gpus: [{ index: 0, name: "AMD Radeon", uniqueId: 1 }],
+    settings: {
+      verticalSync: { supported: true, mode: "alwaysOff" },
+      antiLag: { supported: true, enabled: true, levelSupported: false, level: null },
+    },
+    warnings: [],
+    error: null,
+  }
+  let reads = 0
+  const client = createRadeonDaemonClient({
+    ...getRadeonDaemonPaths("C:\work"),
+    spawnHelper: () => ({ pid: 1, exitCode: null, once() {}, kill() {} }),
+    readStatus: async () => {
+      reads += 1
+      if (reads <= 2) return { ...base, lastCommand: "probe", lastResult: "ok", updatedAt: Date.now() }
+      // 세 번째 읽기가 apply 중간 상태, 그 다음이 결론이다.
+      if (reads === 3) return { ...base, lastCommand: "apply", lastResult: "", updatedAt: Date.now() }
+      return { ...base, lastCommand: "apply", lastResult: "ok", updatedAt: Date.now() }
+    },
+    writeControl: async () => {},
+    removeFile: async () => {},
+    wait: async () => {},
+  })
+
+  await client.start()
+  const result = await client.apply()
+  assert.equal(result.lastResult, "ok", "중간 상태를 건너뛰고 결론을 기다려야 한다")
+})
