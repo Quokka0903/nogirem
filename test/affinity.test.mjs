@@ -4,10 +4,13 @@ import { readFile } from "node:fs/promises"
 import {
   buildCpuHalfMasks,
   buildCpuTopologyMasks,
+  createProcessMetadataCache,
   defaultGamePhysicalCoreCount,
   hasLiveAppliedAffinityEntries,
+  isSystemDirectoryPath,
   listNativeProcesses,
   matchesGameProcess,
+  queryProcessPath,
 } from "../src/affinity.mjs"
 
 const gamePathConfig = {
@@ -377,4 +380,213 @@ test("PID와 시작 시각 및 현재 마스크가 모두 일치할 때만 적�
     processStartReader,
     affinityReader: () => 0xffffn,
   }), false)
+})
+
+test("살아 있는 PID의 프로세스 메타데이터는 다음 틱에서 다시 조회하지 않는다", () => {
+  const queriedPids = []
+  const cache = createProcessMetadataCache({
+    queryProcessPath: pid => {
+      queriedPids.push(pid)
+      return `C:\\Apps\\app${pid}.exe`
+    },
+    queryProcessStartTime: () => "2026-09-05T17:00:00.000Z",
+    queryProcessSessionId: () => 1,
+  })
+  const snapshot = () => [
+    { pid: 1000, name: "app.exe" },
+    { pid: 1001, name: "other.exe" },
+  ]
+
+  const first = cache.attach(snapshot())
+  const second = cache.attach(snapshot())
+
+  assert.deepEqual(queriedPids, [1000, 1001])
+  assert.deepEqual(
+    second.map(processInfo => processInfo.path),
+    first.map(processInfo => processInfo.path),
+  )
+  assert.equal(second[0].startTime, "2026-09-05T17:00:00.000Z")
+  assert.equal(second[0].sessionId, 1)
+})
+
+test("PID가 재사용되어 이름이 달라지면 메타데이터를 다시 조회한다", () => {
+  const queriedPids = []
+  const cache = createProcessMetadataCache({
+    queryProcessPath: pid => {
+      queriedPids.push(pid)
+      return queriedPids.length === 1 ? "C:\\Apps\\old.exe" : "C:\\Apps\\new.exe"
+    },
+    queryProcessStartTime: () => (
+      queriedPids.length === 1 ? "2026-09-05T17:00:00.000Z" : "2026-09-05T18:00:00.000Z"
+    ),
+    queryProcessSessionId: () => (queriedPids.length === 1 ? 1 : 2),
+  })
+
+  cache.attach([{ pid: 1000, name: "old.exe" }])
+  const [reused] = cache.attach([{ pid: 1000, name: "new.exe" }])
+
+  assert.deepEqual(queriedPids, [1000, 1000])
+  assert.equal(reused.path, "C:\\Apps\\new.exe")
+  assert.equal(reused.startTime, "2026-09-05T18:00:00.000Z")
+  assert.equal(reused.sessionId, 2)
+})
+
+test("스냅샷에서 사라진 PID의 캐시는 제거하고 다시 나타나면 재조회한다", () => {
+  const queriedPids = []
+  const cache = createProcessMetadataCache({
+    queryProcessPath: pid => {
+      queriedPids.push(pid)
+      return `C:\\Apps\\app${pid}.exe`
+    },
+    queryProcessStartTime: () => "2026-09-05T17:00:00.000Z",
+    queryProcessSessionId: () => 1,
+  })
+
+  cache.attach([{ pid: 1000, name: "a.exe" }, { pid: 1001, name: "b.exe" }])
+  assert.deepEqual(cache.cachedPids(), [1000, 1001])
+
+  cache.attach([{ pid: 1001, name: "b.exe" }])
+  assert.deepEqual(cache.cachedPids(), [1001])
+  assert.equal(cache.size(), 1)
+
+  cache.attach([{ pid: 1000, name: "a.exe" }, { pid: 1001, name: "b.exe" }])
+  assert.deepEqual(queriedPids, [1000, 1001, 1000])
+})
+
+test("프로세스 메타데이터 캐시는 인스턴스마다 분리된다", () => {
+  const readers = {
+    queryProcessPath: () => "C:\\Apps\\app.exe",
+    queryProcessStartTime: () => "2026-09-05T17:00:00.000Z",
+    queryProcessSessionId: () => 1,
+  }
+  const first = createProcessMetadataCache(readers)
+  const second = createProcessMetadataCache(readers)
+
+  first.attach([{ pid: 1000, name: "a.exe" }])
+
+  assert.deepEqual(first.cachedPids(), [1000])
+  assert.deepEqual(second.cachedPids(), [])
+})
+
+test("시스템 디렉터리 판정은 SystemRoot 드라이브를 따른다", () => {
+  assert.equal(isSystemDirectoryPath("D:\\Windows\\System32\\svchost.exe", "D:\\Windows"), true)
+  assert.equal(isSystemDirectoryPath("C:\\Windows\\System32\\svchost.exe", "D:\\Windows"), false)
+  assert.equal(isSystemDirectoryPath("C:/Windows/System32/svchost.exe", "C:\\Windows"), true)
+  assert.equal(isSystemDirectoryPath("C:\\WindowsApps\\app.exe", "C:\\Windows"), false)
+  assert.equal(isSystemDirectoryPath("D:\\Games\\Client.exe", "D:\\Windows"), false)
+  assert.equal(isSystemDirectoryPath("D:\\Windows\\System32\\a.exe", "D:\\Windows\\"), true)
+  assert.equal(isSystemDirectoryPath("", "D:\\Windows"), false)
+})
+
+test("SystemRoot가 없으면 기본 C:\\Windows를 시스템 디렉터리로 사용한다", () => {
+  const originalSystemRoot = process.env.SystemRoot
+  delete process.env.SystemRoot
+  try {
+    assert.equal(isSystemDirectoryPath("C:\\Windows\\System32\\svchost.exe"), true)
+    assert.equal(isSystemDirectoryPath("D:\\Windows\\System32\\svchost.exe"), false)
+    assert.equal(isSystemDirectoryPath("C:\\Windows\\System32\\svchost.exe", ""), true)
+  } finally {
+    if (originalSystemRoot === undefined) delete process.env.SystemRoot
+    else process.env.SystemRoot = originalSystemRoot
+  }
+})
+
+test("경로 조회 버퍼를 재사용해도 이전 조회 결과가 남지 않는다", () => {
+  assert.equal(queryProcessPath(process.pid), process.execPath)
+
+  for (const processInfo of listNativeProcesses()) queryProcessPath(processInfo.pid)
+
+  assert.equal(queryProcessPath(process.pid), process.execPath)
+})
+
+test("메타데이터 조회에 실패하면 지정한 틱 간격으로만 다시 조회한다", () => {
+  const queriedPids = []
+  const cache = createProcessMetadataCache({
+    queryProcessPath: pid => {
+      queriedPids.push(pid)
+      return null
+    },
+    queryProcessStartTime: () => null,
+    queryProcessSessionId: () => null,
+  }, { failedRetryTicks: 3 })
+  const snapshot = () => [{ pid: 1000, name: "app.exe" }]
+
+  cache.attach(snapshot())
+  assert.deepEqual(queriedPids, [1000])
+
+  cache.attach(snapshot())
+  cache.attach(snapshot())
+  assert.deepEqual(queriedPids, [1000])
+
+  const [retried] = cache.attach(snapshot())
+  assert.deepEqual(queriedPids, [1000, 1000])
+  assert.equal(retried.path, null)
+})
+
+test("실패 후 재조회가 성공하면 캐시에 남고 더 이상 재시도하지 않는다", () => {
+  const queriedPids = []
+  let queriedPath = null
+  const cache = createProcessMetadataCache({
+    queryProcessPath: pid => {
+      queriedPids.push(pid)
+      return queriedPath
+    },
+    queryProcessStartTime: () => "2026-09-05T17:00:00.000Z",
+    queryProcessSessionId: () => 1,
+  }, { failedRetryTicks: 2 })
+  const snapshot = () => [{ pid: 1000, name: "app.exe" }]
+
+  cache.attach(snapshot())
+  cache.attach(snapshot())
+  assert.deepEqual(queriedPids, [1000])
+
+  queriedPath = "C:\\Apps\\app.exe"
+  const [recovered] = cache.attach(snapshot())
+  assert.deepEqual(queriedPids, [1000, 1000])
+  assert.equal(recovered.path, "C:\\Apps\\app.exe")
+
+  cache.attach(snapshot())
+  cache.attach(snapshot())
+  cache.attach(snapshot())
+  assert.deepEqual(queriedPids, [1000, 1000])
+})
+
+test("경로만 있고 시작 시각이 비어 있어도 실패로 보고 재조회한다", () => {
+  const queriedPids = []
+  const cache = createProcessMetadataCache({
+    queryProcessPath: pid => {
+      queriedPids.push(pid)
+      return "C:\\Apps\\app.exe"
+    },
+    queryProcessStartTime: () => null,
+    queryProcessSessionId: () => 1,
+  }, { failedRetryTicks: 2 })
+  const snapshot = () => [{ pid: 1000, name: "app.exe" }]
+
+  cache.attach(snapshot())
+  cache.attach(snapshot())
+  assert.deepEqual(queriedPids, [1000])
+
+  cache.attach(snapshot())
+  assert.deepEqual(queriedPids, [1000, 1000])
+})
+
+test("세션 ID 0은 정상 값이므로 재조회 대상이 아니다", () => {
+  const queriedPids = []
+  const cache = createProcessMetadataCache({
+    queryProcessPath: pid => {
+      queriedPids.push(pid)
+      return "C:\\Apps\\service.exe"
+    },
+    queryProcessStartTime: () => "2026-09-05T17:00:00.000Z",
+    queryProcessSessionId: () => 0,
+  }, { failedRetryTicks: 1 })
+  const snapshot = () => [{ pid: 1000, name: "service.exe" }]
+
+  cache.attach(snapshot())
+  cache.attach(snapshot())
+  const [reused] = cache.attach(snapshot())
+
+  assert.deepEqual(queriedPids, [1000])
+  assert.equal(reused.sessionId, 0)
 })
